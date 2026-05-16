@@ -647,7 +647,7 @@
     <button type="button" class="nav-link" onclick="scrollToSection('resumoCard')">📋 Resumo Redes</button>
     <button type="button" class="nav-link" onclick="scrollToSection('comparativoCard')">🔄 SI × SO</button>
     <button type="button" class="nav-link" onclick="scrollToSection('insightsCard')">💡 Insights</button>
-    <button type="button" class="nav-link" onclick="scrollToSection('ufCard')">🗺️ UF</button>
+    <button type="button" class="nav-link" onclick="scrollToSection('ufCard')">🗺️ Canal</button>
     <button type="button" class="nav-link" onclick="scrollToSection('decompCard')">📊 Decomp.</button>
     <button type="button" class="nav-link" onclick="scrollToSection('planoAcaoCard')">🎯 Ações</button>
     <button type="button" class="nav-link" onclick="scrollToSection('chartYoYCard')">📈 Evolução</button>
@@ -710,7 +710,7 @@
 
   <!-- CARD DE DIAGNÓSTICO POR UF -->
   <div class="card collapsible" id="ufCard" style="display:none">
-    <h3 onclick="toggleSection('ufCard')">🗺️ Diagnóstico por UF <span style="font-size:11px;font-weight:300;color:var(--ink-muted);margin-left:auto" id="ufAviso"></span> <span class="toggle-icon">▼</span></h3>
+    <h3 onclick="toggleSection('ufCard')">🗺️ Diagnóstico por Canal (CHAN_DESC) <span style="font-size:11px;font-weight:300;color:var(--ink-muted);margin-left:auto" id="ufAviso"></span> <span class="toggle-icon">▼</span></h3>
     <div class="collapsible-body">
       <div id="ufResumo" style="margin-bottom:14px"></div>
       <div id="ufRanking" style="margin-bottom:14px"></div>
@@ -1099,6 +1099,36 @@ function produtoBateFiltro(produtoSO, produtoSetNorm){
 //   - Se TIPO_CLIENTE filtrado for Distribuidor: idem
 //
 // Função: clienteEhDistribuidor(nomeCliente) → bool
+
+// ============================================================
+// FILTRO DE CLIENTE NO SELL-OUT (escopo global)
+// Normaliza nomes de cliente entre Sell-in e Sell-out para match flexível.
+// Ex: filtro "RAIA DROGASIL" deve casar com "GRUPO RAIA DROGASIL" no SO.
+//
+// Esta função é usada em TODOS os cards que consomem sell-out:
+//   - Top 15 Clientes SO
+//   - Diagnóstico por CHAN_DESC (antes UF)
+//   - Plano de Ação
+//   - Comparativo SI×SO
+//   - Crescimento/Queda
+// ============================================================
+function clienteBateFiltroSO(clienteSO){
+  // Lê estado atual dos filtros (variáveis globais)
+  if(!clientesSelecionados || clientesSelecionados.length === 0) return true; // sem filtro = aceita tudo
+  if(clientesSelecionados.includes(clienteSO)) return true; // match exato
+  // Match flexível: o nome da rede pode estar em formato diferente entre SI e SO
+  const upSO = String(clienteSO).toUpperCase().trim();
+  for(const filtro of clientesSelecionados){
+    const upF = String(filtro).toUpperCase().trim();
+    if(upSO.includes(upF) || upF.includes(upSO)) return true;
+    // Match por primeira palavra significativa (ex: RAIA, DPSP, PROFARMA)
+    const firstSO = upSO.split(/\s+/).find(w => w.length >= 4);
+    const firstF = upF.split(/\s+/).find(w => w.length >= 4);
+    if(firstSO && firstF && firstSO === firstF) return true;
+  }
+  return false;
+}
+
 function clienteEhDistribuidor(nomeCliente){
   if(!nomeCliente) return false;
   const map = window.__clienteTipoMap;
@@ -2580,24 +2610,15 @@ function renderUF(per){
   const top = linhas[0];
   const positivos = linhas.filter(l => l.dPct > 2 && l.comp > 0);
   const negativos = linhas.filter(l => l.dPct < -2 && l.comp > 0);
-  const ufsNomes = {
-    'AC':'Acre','AL':'Alagoas','AP':'Amapá','AM':'Amazonas','BA':'Bahia','CE':'Ceará',
-    'DF':'Distrito Federal','ES':'Espírito Santo','GO':'Goiás','MA':'Maranhão',
-    'MT':'Mato Grosso','MS':'Mato Grosso do Sul','MG':'Minas Gerais','PA':'Pará',
-    'PB':'Paraíba','PR':'Paraná','PE':'Pernambuco','PI':'Piauí','RJ':'Rio de Janeiro',
-    'RN':'Rio Grande do Norte','RS':'Rio Grande do Sul','RO':'Rondônia','RR':'Roraima',
-    'SC':'Santa Catarina','SP':'São Paulo','SE':'Sergipe','TO':'Tocantins'
-  };
-  const nomeTop = ufsNomes[top.nome] || top.nome;
 
-  let insightTxt = `<b>${nomeTop} (${top.nome})</b> lidera com ${fmt(top.atual)} (${(top.atual/totalGeral*100).toFixed(0)}% do total)`;
+  let insightTxt = `<b>${top.nome}</b> lidera com ${fmt(top.atual)} (${(top.atual/totalGeral*100).toFixed(0)}% do total)`;
   if(top.comp > 0){
     insightTxt += top.dPct >= 0 ? ` e cresce <b>+${top.dPct.toFixed(1)}%</b> vs YA.` : ` mas recua <b>${top.dPct.toFixed(1)}%</b> vs YA.`;
   } else {
     insightTxt += '.';
   }
   if(positivos.length > 0 || negativos.length > 0){
-    insightTxt += ` ${positivos.length} UF${positivos.length===1?'':'s'} crescem · ${negativos.length} ${negativos.length===1?'recua':'recuam'}.`;
+    insightTxt += ` ${positivos.length} canal${positivos.length===1?'':'is'} cresc${positivos.length===1?'e':'em'} · ${negativos.length} ${negativos.length===1?'recua':'recuam'}.`;
   }
 
   resumoDiv.innerHTML = `
@@ -2614,7 +2635,7 @@ function renderUF(per){
     if(lista.length === 0){
       return `<div style="background:${fundoBox};padding:14px;border-radius:8px;border-left:4px solid ${cor};flex:1;min-width:280px">
         <div style="font-size:12px;font-weight:700;color:${cor};margin-bottom:8px">${titulo}</div>
-        <div style="font-size:12px;color:var(--ink-muted);font-style:italic">Sem UFs nesta categoria</div>
+        <div style="font-size:12px;color:var(--ink-muted);font-style:italic">Sem canais nesta categoria</div>
       </div>`;
     }
     const maxAbs = Math.max(...lista.map(l => Math.abs(l.dAbs)));
@@ -2627,7 +2648,7 @@ function renderUF(per){
       h += `
         <div style="margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:3px">
-            <span><b>${i+1}.</b> <b style="color:#1E3A5F">${l.nome}</b> <span style="color:var(--ink-muted);font-size:11px">(${ufsNomes[l.nome] || l.nome})</span></span>
+            <span><b>${i+1}.</b> <b style="color:#1E3A5F">${l.nome}</b></span>
             <span style="color:${cor};font-weight:700">${sinal}${fmt(Math.abs(l.dAbs))} <span style="font-size:10px">(${seta} ${l.dPct >= 0 ? '+' : ''}${l.dPct.toFixed(1)}%)</span></span>
           </div>
           <div style="background:#F3F4F6;border-radius:4px;height:6px;overflow:hidden">
@@ -2648,12 +2669,11 @@ function renderUF(per){
 
   // Tabela completa
   let html = `
-    <div style="font-size:12px;font-weight:700;color:var(--ink);margin:14px 0 8px">📋 Tabela completa por UF</div>
+    <div style="font-size:12px;font-weight:700;color:var(--ink);margin:14px 0 8px">📋 Tabela completa por Canal (CHAN_DESC)</div>
     <div style="overflow-x:auto"><table class="targets-tabela" style="width:100%;font-size:12px">
       <thead>
         <tr>
-          <th style="text-align:left">UF</th>
-          <th style="text-align:left">Estado</th>
+          <th style="text-align:left">Canal</th>
           <th class="num">Redes</th>
           <th class="num">Atual</th>
           <th class="num">Comp</th>
@@ -2669,11 +2689,9 @@ function renderUF(per){
     const seta = l.dPct >= 0 ? '▲' : '▼';
     const sinalAbs = l.dAbs >= 0 ? '+' : '-';
     const share = totalGeral > 0 ? (l.atual / totalGeral * 100) : 0;
-    const nomeEstado = ufsNomes[l.nome] || l.nome;
     html += `
       <tr>
         <td><b style="color:#1E3A5F">${l.nome}</b></td>
-        <td style="color:var(--ink-muted);font-size:11px">${nomeEstado}</td>
         <td class="num">${l.redes}</td>
         <td class="num">${fmt(l.atual)}</td>
         <td class="num" style="color:var(--ink-muted)">${fmt(l.comp)}</td>
@@ -3436,23 +3454,6 @@ function renderComparativo(per){
   const produtoSet = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
   const clienteSet = clientesSelecionados.length ? new Set(clientesSelecionados) : null;
 
-  // Para sell-out, normaliza nomes de cliente para match flexível (ex: filtro "RAIA DROGASIL" → "GRUPO RAIA DROGASIL" no SO)
-  function clienteBateFiltroSO(clienteSO){
-    if(!clienteSet) return true; // sem filtro = aceita tudo
-    if(clienteSet.has(clienteSO)) return true; // match exato
-    // Match flexível: o nome da rede pode estar em formato diferente entre SI e SO
-    const upSO = String(clienteSO).toUpperCase().trim();
-    for(const filtro of clienteSet){
-      const upF = String(filtro).toUpperCase().trim();
-      if(upSO.includes(upF) || upF.includes(upSO)) return true;
-      // Match por primeira palavra significativa (ex: RAIA, DPSP, PROFARMA)
-      const firstSO = upSO.split(/\s+/).find(w => w.length >= 4);
-      const firstF = upF.split(/\s+/).find(w => w.length >= 4);
-      if(firstSO && firstF && firstSO === firstF) return true;
-    }
-    return false;
-  }
-
   // Sell-in: período atual e comparado conforme filtro
   const periodoAtualSetSI = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
   const periodoCompSetSI = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
@@ -3810,6 +3811,7 @@ function renderKPIs(data, per){
     let atual=0, comp=0, mesUltimoVal=0, mom=0, ytd=0, ytdAnt=0;
     for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+      if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
       if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
       if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
       if(produtoSet && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSet))) continue;
@@ -4062,6 +4064,7 @@ function renderInsights(data, per){
     let soAtual = 0, soComp = 0;
     for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+      if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
       if(franquiasSetIns && !_franquiaCI(r.FRANQUIA, franquiasSetIns)) continue;
       if(tipoSetIns && !tipoSetIns.has(r.TIPO_CLIENTE)) continue;
       if(produtoSetIns && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSetIns))) continue;
@@ -4446,6 +4449,7 @@ function renderTargets(data, per){
 
     for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+      if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
       if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
       if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
       const k = `${r.ANO}-${r.MES}`;
@@ -4858,6 +4862,7 @@ function renderChartSellout(per){
   // Agregar valores
   for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+    if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
     if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
     if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
     if(produtoSet && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSet))) continue;
@@ -5194,6 +5199,7 @@ function agregarSellout(groupBy){
   const result = {};
   for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+    if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
     if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
     if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
     if(produtoSet && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSet))) continue;
@@ -6513,6 +6519,7 @@ async function exportPPTX(){
       let atual=0, comp=0, momAtual=0, momAnterior=0, ytd=0, ytdAnt=0;
       for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+        if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
         if(franquiasSetSO && !_franquiaCI(r.FRANQUIA, franquiasSetSO)) continue;
         if(tipoSetSO && !tipoSetSO.has(r.TIPO_CLIENTE)) continue;
         if(produtoSetSO && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSetSO))) continue;
@@ -6946,6 +6953,7 @@ async function exportPPTX(){
       const soProd = {}, soRede = {}, soFr = {};
       for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+        if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
         if(franquiasSetC && !_franquiaCI(r.FRANQUIA, franquiasSetC)) continue;
         if(tipoSetC && !tipoSetC.has(r.TIPO_CLIENTE)) continue;
         if(produtoSetC && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSetC))) continue;
@@ -7342,6 +7350,7 @@ async function exportPPTX(){
 
         for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+          if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
           if(franquiasSetPpt && !_franquiaCI(r.FRANQUIA, franquiasSetPpt)) continue;
           if(tipoSetPpt && !tipoSetPpt.has(r.TIPO_CLIENTE)) continue;
           const k = `${r.ANO}-${r.MES}`;
@@ -7749,6 +7758,7 @@ async function exportPPTX(){
       const cruzamentoSO = {}; // [produto][rede] = {atual, comp}
       for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+        if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
         if(franquiasSetSO && !_franquiaCI(r.FRANQUIA, franquiasSetSO)) continue;
         if(tipoSetSO && !tipoSetSO.has(r.TIPO_CLIENTE)) continue;
         if(produtoSetSO && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSetSO))) continue;
