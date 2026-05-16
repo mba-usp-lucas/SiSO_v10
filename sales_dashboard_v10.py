@@ -35,6 +35,14 @@ EMBUTIR_LIBS = True
 # Filtro de canal: "farmacia" = so farmacia | "" = todos os canais
 FILTRO_CANAL_PADRAO = "farmacia"
 
+# =========================================================
+# TAXA DE CAMBIO BRL -> USD para Sell-Out
+# Sell-out nao tem coluna USD, entao convertemos do PPP usando esta taxa.
+# Atualizar 1x por ano ou quando a cotacao mudar significativamente.
+# Ex: 5.37 = R$ 5.37 por US$ 1.00
+# =========================================================
+TAXA_BRL_USD = 5.37
+
 CDN_LIBS = [
     {"name": "Chart.js", "version": "4.4.0",
      "url": "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js",
@@ -517,6 +525,7 @@ def gerar_html():
         f"window.__ALCON_SELLOUT_ULTIMO__ = {usj};\n"
         f"window.__ALCON_CLIENTE_TIPO_MAP__ = {ctj};\n"
         f"window.__ALCON_DEPARA_OK__ = {str(depara_ok).lower()};\n"
+        f"window.__ALCON_TAXA_BRL_USD__ = {TAXA_BRL_USD};\n"
         f'window.__ALCON_META_EMBED__ = {{ registros: {len(df)}, sellout_registros: {len(sellout)}, timestamp: "{ts}" }};\n'
         f"{mk}"
     )
@@ -539,6 +548,7 @@ def gerar_html():
         "if(window.__ALCON_SELLOUT_UF_EMBED__){window.__rawDataSelloutUF = window.__ALCON_SELLOUT_UF_EMBED__.map(function(r){return Object.assign({},r,{ANO:+r.ANO,MES:+r.MES,BRL:+r.BRL||0,UNID:+r.UNID||0});});}"
         "if(window.__ALCON_SELLOUT_ULTIMO__){selloutUltimoPeriodo = window.__ALCON_SELLOUT_ULTIMO__;}"
         "if(window.__ALCON_CLIENTE_TIPO_MAP__){window.__clienteTipoMap = window.__ALCON_CLIENTE_TIPO_MAP__;}"
+        "if(typeof window.__ALCON_TAXA_BRL_USD__ === 'number'){window.TAXA_BRL_USD = window.__ALCON_TAXA_BRL_USD__;}"
         "if(window.__ALCON_DEPARA_OK__ === false && rawDataSellout && rawDataSellout.length > 0){var b=document.getElementById('deparaBanner');if(b)b.style.display='block';}"
     )
     t3, n2 = pi.subn(init_n, template, count=1)

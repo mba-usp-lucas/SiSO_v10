@@ -73,10 +73,10 @@
   .metric-toggle-compact .metric-btn.active{background:var(--alcon-blue);color:#fff;box-shadow:0 1px 3px rgba(0,121,193,0.4);}
   .metric-toggle-compact .metric-btn .metric-icon{font-size:13px}
 
-  .filters{background:#ffffff;padding:18px;border-radius:12px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.05);display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;}
+  .filters{background:#ffffff;padding:18px;border-radius:12px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.05);display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;position:relative;z-index:200;}
   /* Cliente ocupa o dobro de espaço (mais caracteres) */
   .filter-group-wide{grid-column:span 2;min-width:320px;}
-  .filters-wrapper{background:#ffffff;padding:14px 18px;border-radius:12px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05);}
+  .filters-wrapper{background:#ffffff;padding:14px 18px;border-radius:12px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05);position:relative;z-index:200;}
   .filters-wrapper .filters{box-shadow:none;padding:8px 0 0;margin-bottom:0;background:transparent;}
   .filter-group label{display:block;font-size:11px;font-weight:700;color:var(--ink-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;}
   .filter-group select,.filter-group input{
@@ -121,7 +121,7 @@
   }
   .searchable-input:focus{outline:none;border-color:var(--alcon-blue);box-shadow:0 0 0 3px rgba(0,53,149,0.15);}
   .searchable-arrow{position:absolute;right:12px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--ink-muted);font-size:10px;}
-  .searchable-list{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:8px;margin-top:4px;max-height:380px;overflow:hidden;z-index:100;box-shadow:0 6px 20px rgba(0,0,0,0.12);display:none;flex-direction:column;}
+  .searchable-list{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:8px;margin-top:4px;max-height:380px;overflow:hidden;z-index:500;box-shadow:0 6px 20px rgba(0,0,0,0.12);display:none;flex-direction:column;}
   .searchable-list.open{display:flex}
   .searchable-search-wrap{padding:10px;border-bottom:1px solid #e5e7eb;background:#f8fafc;}
   .searchable-search-input{
@@ -175,7 +175,7 @@
   .nav-menu{
     background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);
     padding:10px 14px;margin-bottom:16px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;
-    position:sticky;top:0;z-index:100;border:1px solid #e5e7eb;
+    position:sticky;top:0;z-index:50;border:1px solid #e5e7eb;
   }
   .nav-menu-label{
     font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;
@@ -1112,6 +1112,25 @@ function produtoBateFiltro(produtoSO, produtoSetNorm){
 //   - Comparativo SI×SO
 //   - Crescimento/Queda
 // ============================================================
+// ============================================================
+// CONVERSAO BRL -> USD para Sell-Out
+// Sell-out nao tem coluna USD. Quando metricaAtual='USD' e estamos
+// processando sell-out, convertemos BRL_PPP pela taxa configurada.
+// Taxa vem do Python via window.TAXA_BRL_USD (default: 5.37)
+// ============================================================
+function getTaxaBRLtoUSD(){
+  return (typeof window.TAXA_BRL_USD === 'number' && window.TAXA_BRL_USD > 0) ? window.TAXA_BRL_USD : 5.37;
+}
+
+// Retorna valor SO ajustado para a metricaAtual (UNID, BRL ou USD)
+// Para USD em sell-out: converte BRL_PPP pela taxa
+function getValorSO(registro){
+  if(metricaAtual === 'UNID') return +registro.UNID || 0;
+  const brl = +registro.BRL || 0;
+  if(metricaAtual === 'USD') return brl / getTaxaBRLtoUSD();
+  return brl; // BRL default
+}
+
 function clienteBateFiltroSO(clienteSO){
   // Lê estado atual dos filtros (variáveis globais)
   if(!clientesSelecionados || clientesSelecionados.length === 0) return true; // sem filtro = aceita tudo
@@ -2190,10 +2209,10 @@ function renderizarTudo(){
   renderKPIs(base, per);
   renderResumo(per);  // Card resumo - sempre filtra sem cliente
   renderComparativo(per);  // Card análise comparativa sell-in x sell-out
-  renderInsights(base, per);
   renderUF(per);
-  renderDecomposicao(base, per);
-  renderPlanoAcao(base, per);
+  renderDecomposicao(base, per);  // antes de Insights pra alimentar window.__decompResultado
+  renderPlanoAcao(base, per);     // antes de Insights pra alimentar window.__planoAcaoResultado
+  renderInsights(base, per);       // depois pra usar resultados acima
   renderBenchmark(per);
   renderTargets(base, per);
   renderTargetsFinanceiros(base, per);
@@ -2569,7 +2588,7 @@ function renderUF(per){
 
     const uf = r.UF || '—';
     const k = `${r.ANO}-${r.MES}`;
-    const v = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+    const v = getValorSO(r);
 
     if(!aggUF[uf]) aggUF[uf] = {atual:0, comp:0, redes: new Set()};
     if(setAtualSO.has(k)){
@@ -2827,7 +2846,7 @@ function renderPlanoAcao(data, per){
       const k = `${r.ANO}-${r.MES}`;
       const cli = r.GRUPO_PAINEL;
       const prod = r.PRODUTO;
-      const v = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+      const v = getValorSO(r);
       if(!aggCliSO[cli]) aggCliSO[cli] = {atual:0, comp:0, unid:0};
       if(!aggProdSO[prod]) aggProdSO[prod] = {atual:0, comp:0, unid:0};
       if(setAtualSO.has(k)){
@@ -3208,7 +3227,7 @@ function renderResumo(per){
 
   // ============ SELL-IN ============
   const resultadosSellin = RESUMO_CLIENTES.map(col => {
-    let unidAtual = 0, unidComp = 0, brlAtual = 0, brlComp = 0;
+    let unidAtual = 0, unidComp = 0, brlAtual = 0, brlComp = 0, usdAtual = 0, usdComp = 0;
     for(const r of dadosResumo){
       const cliente = String(r[COLS.CLIENTE] || '').toUpperCase();
       if(!clienteBate(cliente, col.match)) continue;
@@ -3218,12 +3237,14 @@ function renderResumo(per){
       if(!isAtual && !isComp) continue;
       const unid = +r[COLS.VALOR_UNID] || 0;
       const brl = +r[COLS.VALOR_BRL] || 0;
-      if(isAtual){ unidAtual += unid; brlAtual += brl; }
-      if(isComp){ unidComp += unid; brlComp += brl; }
+      const usd = +r[COLS.VALOR_USD] || 0;
+      if(isAtual){ unidAtual += unid; brlAtual += brl; usdAtual += usd; }
+      if(isComp){ unidComp += unid; brlComp += brl; usdComp += usd; }
     }
     const unidVar = unidComp ? ((unidAtual - unidComp) / unidComp * 100) : (unidAtual > 0 ? 100 : 0);
     const brlVar = brlComp ? ((brlAtual - brlComp) / brlComp * 100) : (brlAtual > 0 ? 100 : 0);
-    return { rotulo: col.rotulo, unidAtual, unidComp, unidVar, brlAtual, brlComp, brlVar };
+    const usdVar = usdComp ? ((usdAtual - usdComp) / usdComp * 100) : (usdAtual > 0 ? 100 : 0);
+    return { rotulo: col.rotulo, unidAtual, unidComp, unidVar, brlAtual, brlComp, brlVar, usdAtual, usdComp, usdVar };
   });
 
   // ============ SELL-OUT (se disponivel) ============
@@ -3323,7 +3344,12 @@ function renderResumo(per){
       }
       const unidVar = unidComp ? ((unidAtual - unidComp) / unidComp * 100) : (unidAtual > 0 ? 100 : 0);
       const brlVar = brlComp ? ((brlAtual - brlComp) / brlComp * 100) : (brlAtual > 0 ? 100 : 0);
-      return { rotulo: col.rotulo, unidAtual, unidVar, brlAtual, brlVar };
+      // USD = converte BRL pela taxa (sell-out nao tem USD nativo)
+      const taxa = getTaxaBRLtoUSD();
+      const usdAtual = brlAtual / taxa;
+      const usdComp = brlComp / taxa;
+      const usdVar = brlVar; // mesma variação % (taxa fixa)
+      return { rotulo: col.rotulo, unidAtual, unidVar, brlAtual, brlVar, usdAtual, usdComp, usdVar };
     });
 
     // Label da seção sell-out
@@ -3339,6 +3365,7 @@ function renderResumo(per){
   // Formatadores
   const fmtNum = v => v >= 1e9 ? (v/1e9).toFixed(2)+'B' : v >= 1e6 ? (v/1e6).toFixed(2)+'M' : v >= 1e3 ? (v/1e3).toFixed(1)+'K' : Math.round(v).toLocaleString('pt-BR');
   const fmtBRL = v => 'R$ ' + fmtNum(v);
+  const fmtUSD = v => 'US$ ' + fmtNum(v);
   const fmtVar = v => {
     const sinal = v >= 0 ? '+' : '-';
     const seta = v >= 0 ? '▲' : '▼';
@@ -3378,6 +3405,17 @@ function renderResumo(per){
     </td>`;
   });
   html += '</tr>';
+  // Linha USD SELL-IN
+  html += '<tr class="row-sellin"><td>USD</td>';
+  resultadosSellin.forEach((r, i) => {
+    const cls = i === 0 ? 'col-brasil' : '';
+    const varCls = r.usdVar >= 0 ? 'pos' : 'neg';
+    html += `<td class="${cls}">
+      <span class="resumo-valor">${fmtUSD(r.usdAtual)}</span>
+      <span class="resumo-var ${varCls}">${fmtVar(r.usdVar)}</span>
+    </td>`;
+  });
+  html += '</tr>';
 
   // ============ SELL-OUT (real ou placeholder) ============
   const corSecaoSellout = resultadosSellout ? '#1E40AF' : '#64748B';
@@ -3406,6 +3444,18 @@ function renderResumo(per){
       </td>`;
     });
     html += '</tr>';
+    // USD SELL-OUT (convertido pela taxa)
+    const taxa = getTaxaBRLtoUSD();
+    html += `<tr class="row-sellout-real"><td>USD <span style="font-size:9px;color:#64748B;font-weight:400">(R$${taxa.toFixed(2)}/US$)</span></td>`;
+    resultadosSellout.forEach((r, i) => {
+      const cls = i === 0 ? 'col-brasil' : '';
+      const varCls = r.usdVar >= 0 ? 'pos' : 'neg';
+      html += `<td class="${cls}">
+        <span class="resumo-valor">${fmtUSD(r.usdAtual)}</span>
+        <span class="resumo-var ${varCls}">${fmtVar(r.usdVar)}</span>
+      </td>`;
+    });
+    html += '</tr>';
   } else {
     // Placeholders se sell-out nao carregado
     html += '<tr class="row-sellout"><td>Unidades</td>';
@@ -3415,6 +3465,12 @@ function renderResumo(per){
     });
     html += '</tr>';
     html += '<tr class="row-sellout"><td>Reais (R$)</td>';
+    resultadosSellin.forEach((r, i) => {
+      const cls = i === 0 ? 'col-brasil' : '';
+      html += `<td class="${cls}">—</td>`;
+    });
+    html += '</tr>';
+    html += '<tr class="row-sellout"><td>USD</td>';
     resultadosSellin.forEach((r, i) => {
       const cls = i === 0 ? 'col-brasil' : '';
       html += `<td class="${cls}">—</td>`;
@@ -3547,7 +3603,7 @@ function renderComparativo(per){
     const isAtual = periodoAtualSetSO.has(k);
     const isComp = periodoCompSetSO.has(k);
     if(!isAtual && !isComp) continue;
-    const valor = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+    const valor = getValorSO(r);
     const brl = +r.BRL || 0;
     const prodOrig = r.PRODUTO;
     const prodNorm = normalizarNomeProduto(prodOrig);  // <<< NORMALIZA
@@ -3816,7 +3872,7 @@ function renderKPIs(data, per){
       if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
       if(produtoSet && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSet))) continue;
       const k = `${r.ANO}-${r.MES}`;
-      const v = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+      const v = getValorSO(r);
       if(periodoAtualSetSO.has(k)) atual += v;
       if(periodoCompSetSO.has(k)) comp += v;
       if(k === kUltMesPer) mesUltimoVal += v;
@@ -4024,11 +4080,75 @@ function renderInsights(data, per){
   const varPct = totalComp ? ((totalAtual-totalComp)/totalComp*100) : 0;
   const mLabel = METRICAS[metricaAtual].label;
 
-  // Variação sempre faz sentido — prosa executiva sem emojis
-  if(varPct>10) ins.push(`<b>Crescimento acelerado</b> de ${varPct.toFixed(1)}% em ${mLabel} vs. ${per.labelComp}.`);
-  else if(varPct>0) ins.push(`<b>Crescimento moderado</b> de ${varPct.toFixed(1)}% em ${mLabel} vs. ${per.labelComp}.`);
-  else if(varPct>-10) ins.push(`<b>Desaceleração</b> de ${Math.abs(varPct).toFixed(1)}% em ${mLabel} vs. ${per.labelComp}.`);
-  else ins.push(`<b>Queda expressiva</b> de ${Math.abs(varPct).toFixed(1)}% em ${mLabel} vs. ${per.labelComp}.`);
+  // ============================================================
+  // RESUMO EXECUTIVO ENRIQUECIDO (linha 1 - panorama)
+  // ============================================================
+  // Calcular UNID + BRL juntos para visão multi-métrica
+  function somarMetrica(dados, periodo, col){
+    const set = new Set(periodo.map(p => `${p.ano}-${p.mes}`));
+    let total = 0;
+    for(const r of dados){
+      const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+      if(set.has(k)) total += (+r[col] || 0);
+    }
+    return total;
+  }
+  const unidAtual_R = somarMetrica(data, per.periodoAtual, COLS.VALOR_UNID);
+  const unidComp_R = somarMetrica(data, per.periodoComp, COLS.VALOR_UNID);
+  const brlAtual_R = somarMetrica(data, per.periodoAtual, COLS.VALOR_BRL);
+  const brlComp_R = somarMetrica(data, per.periodoComp, COLS.VALOR_BRL);
+  const unidVar_R = unidComp_R ? ((unidAtual_R - unidComp_R) / unidComp_R * 100) : 0;
+  const brlVar_R = brlComp_R ? ((brlAtual_R - brlComp_R) / brlComp_R * 100) : 0;
+
+  // Determinar driver: volume ou preço
+  let driverTxt = '';
+  if(Math.abs(unidVar_R) > 0.5 && Math.abs(brlVar_R) > 0.5){
+    const gap = brlVar_R - unidVar_R;
+    if(Math.abs(gap) < 2) driverTxt = ' Crescimento equilibrado entre <b>volume</b> e <b>preço</b>.';
+    else if(gap > 2) driverTxt = ` Driver: <b>preço/mix</b> (BRL cresce ${Math.abs(gap).toFixed(1)}pp acima de UNID).`;
+    else driverTxt = ` Driver: <b>volume</b> (UNID cresce ${Math.abs(gap).toFixed(1)}pp acima de BRL).`;
+  }
+
+  // Linha 1: Performance + multi-métrica
+  if(varPct > 10) ins.push(`<b>📈 Performance:</b> crescimento acelerado de ${varPct.toFixed(1)}% em ${mLabel} (UNID ${unidVar_R>=0?'+':''}${unidVar_R.toFixed(1)}% · BRL ${brlVar_R>=0?'+':''}${brlVar_R.toFixed(1)}%) vs ${per.labelComp}.${driverTxt}`);
+  else if(varPct > 0) ins.push(`<b>📈 Performance:</b> crescimento moderado de ${varPct.toFixed(1)}% em ${mLabel} (UNID ${unidVar_R>=0?'+':''}${unidVar_R.toFixed(1)}% · BRL ${brlVar_R>=0?'+':''}${brlVar_R.toFixed(1)}%) vs ${per.labelComp}.${driverTxt}`);
+  else if(varPct > -10) ins.push(`<b>📉 Performance:</b> desaceleração de ${Math.abs(varPct).toFixed(1)}% em ${mLabel} (UNID ${unidVar_R>=0?'+':''}${unidVar_R.toFixed(1)}% · BRL ${brlVar_R>=0?'+':''}${brlVar_R.toFixed(1)}%) vs ${per.labelComp}.${driverTxt}`);
+  else ins.push(`<b>🚨 Performance:</b> queda expressiva de ${Math.abs(varPct).toFixed(1)}% em ${mLabel} (UNID ${unidVar_R>=0?'+':''}${unidVar_R.toFixed(1)}% · BRL ${brlVar_R>=0?'+':''}${brlVar_R.toFixed(1)}%) vs ${per.labelComp}.${driverTxt}`);
+
+  // Linha 2: Decomposição (se já calculada)
+  if(window.__decompResultado){
+    const d = window.__decompResultado;
+    const totalAbs = Math.abs(d.totalVolume) + Math.abs(d.totalPreco) + Math.abs(d.totalMix);
+    if(totalAbs > 0){
+      const pctV = (Math.abs(d.totalVolume) / totalAbs * 100);
+      const pctP = (Math.abs(d.totalPreco) / totalAbs * 100);
+      const pctM = (Math.abs(d.totalMix) / totalAbs * 100);
+      ins.push(`<b>🔍 Decomposição (BRL):</b> Volume contribui <b>${pctV.toFixed(0)}%</b> (${d.totalVolume>=0?'+':'-'}${fmt(Math.abs(d.totalVolume))}) · Preço <b>${pctP.toFixed(0)}%</b> (${d.totalPreco>=0?'+':'-'}${fmt(Math.abs(d.totalPreco))}) · Mix <b>${pctM.toFixed(0)}%</b> (${d.totalMix>=0?'+':'-'}${fmt(Math.abs(d.totalMix))}).`);
+    }
+  }
+
+  // Linha 3: Concentração (top 5 clientes + franquias)
+  const clientesMap_R = somarPeriodo(data, per.periodoAtual, COLS.CLIENTE);
+  const valoresCli = Object.values(clientesMap_R).map(v=>v.valor).sort((a,b)=>b-a);
+  const top5Soma_R = valoresCli.slice(0,5).reduce((s,v)=>s+v,0);
+  const concPct = totalAtual > 0 ? (top5Soma_R/totalAtual*100) : 0;
+  const franquiasMap = somarPeriodo(data, per.periodoAtual, COLS.FRANQUIA);
+  const franquiasOrd = Object.entries(franquiasMap).sort((a,b) => b[1].valor - a[1].valor);
+  let franquiasTxt = '';
+  if(franquiasOrd.length >= 2){
+    const f1 = franquiasOrd[0];
+    const f2 = franquiasOrd[1];
+    const compF1 = somarPeriodo(data, per.periodoComp, COLS.FRANQUIA)[f1[0]];
+    const compF2 = somarPeriodo(data, per.periodoComp, COLS.FRANQUIA)[f2[0]];
+    const vF1 = compF1 && compF1.valor ? ((f1[1].valor - compF1.valor) / compF1.valor * 100) : 0;
+    const vF2 = compF2 && compF2.valor ? ((f2[1].valor - compF2.valor) / compF2.valor * 100) : 0;
+    franquiasTxt = ` Franquias: <b>${f1[0]}</b> ${vF1>=0?'+':''}${vF1.toFixed(1)}% · <b>${f2[0]}</b> ${vF2>=0?'+':''}${vF2.toFixed(1)}%.`;
+  }
+  let concTxt = '';
+  if(concPct >= 80) concTxt = `<b>⚠️ Alta concentração:</b> Top 5 clientes = <b>${concPct.toFixed(1)}%</b> do faturamento (risco elevado).${franquiasTxt}`;
+  else if(concPct >= 60) concTxt = `<b>📊 Concentração:</b> Top 5 clientes = <b>${concPct.toFixed(1)}%</b> do faturamento.${franquiasTxt}`;
+  else concTxt = `<b>📊 Distribuição equilibrada:</b> Top 5 clientes = <b>${concPct.toFixed(1)}%</b> do faturamento.${franquiasTxt}`;
+  ins.push(concTxt);
 
   // ============================================================
   // INSIGHTS COMPARATIVOS SELL-IN x SELL-OUT (se disponivel)
@@ -4069,7 +4189,7 @@ function renderInsights(data, per){
       if(tipoSetIns && !tipoSetIns.has(r.TIPO_CLIENTE)) continue;
       if(produtoSetIns && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSetIns))) continue;
       const k = `${r.ANO}-${r.MES}`;
-      const v = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+      const v = getValorSO(r);
       if(setAtualSOIns.has(k)) soAtual += v;
       if(setCompSOIns.has(k)) soComp += v;
     }
@@ -4404,6 +4524,23 @@ function renderInsights(data, per){
     }
   }
 
+  // ============================================================
+  // ALERTAS DO PLANO DE ACAO (se calculado)
+  // ============================================================
+  if(window.__planoAcaoResultado){
+    const pa = window.__planoAcaoResultado;
+    if(pa.criticos && pa.criticos.length > 0){
+      const top = pa.criticos[0];
+      const sinal = top.impactoSinal >= 0 ? '+' : '-';
+      ins.push(`<b>🔴 Alerta crítico:</b> ${top.nome} com impacto de ${sinal}${fmt(Math.abs(top.impactoSinal))} (${top.dPct>=0?'+':''}${top.dPct.toFixed(1)}%). ${top.acao}`);
+    }
+    if(pa.oportunidades && pa.oportunidades.length > 0){
+      const opo = pa.oportunidades[0];
+      const sinal = opo.impactoSinal >= 0 ? '+' : '-';
+      ins.push(`<b>🚀 Oportunidade:</b> ${opo.nome} com impacto positivo de ${sinal}${fmt(Math.abs(opo.impactoSinal))} (${opo.dPct>=0?'+':''}${opo.dPct.toFixed(1)}%). ${opo.acao}`);
+    }
+  }
+
   document.getElementById('insightsList').innerHTML = ins.map(i=>`<li>${i}</li>`).join('');
 }
 
@@ -4459,7 +4596,7 @@ function renderTargets(data, per){
       const prodNorm = normalizarNomeProduto(r.PRODUTO);  // <<< NORMALIZA pra casar com SI
       if(!prodNorm) continue;
       if(!soPorProduto[prodNorm]) soPorProduto[prodNorm] = {atual:0, comp:0};
-      const valor = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+      const valor = getValorSO(r);
       if(isAtual) soPorProduto[prodNorm].atual += valor;
       if(isComp) soPorProduto[prodNorm].comp += valor;
     }
@@ -4866,7 +5003,7 @@ function renderChartSellout(per){
     if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
     if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
     if(produtoSet && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSet))) continue;
-    const v = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+    const v = getValorSO(r);
     if(r.ANO === anoAtual && serieAtual[r.MES-1] !== null) serieAtual[r.MES-1] += v;
     if(r.ANO === anoAnt && serieAnt[r.MES-1] !== null) serieAnt[r.MES-1] += v;
   }
@@ -5215,7 +5352,7 @@ function agregarSellout(groupBy){
       chave = r[groupBy];
     }
     if(!chave) continue;
-    const valor = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+    const valor = getValorSO(r);
     const brl = +r.BRL || 0;
     const unid = +r.UNID || 0;
     if(!result[chave]) result[chave] = {atual:0, comp:0, brlAtual:0, unidAtual:0, unidComp:0, franquia: r.FRANQUIA, tipo: r.TIPO_CLIENTE};
@@ -5986,17 +6123,19 @@ async function exportOnePager(){
     const varPctPrincipal = totaisComp.BRL > 0 ? ((totaisAtual.BRL - totaisComp.BRL) / totaisComp.BRL * 100) : 0;
     const storyParts = gerarStoryExecutivo(base, per, varPctPrincipal);
     slide.addShape(pptx.ShapeType.rect, {
-      x:0.3, y:2.35, w:11.1, h:1.1, fill:{color:AZUL_CLARO}, line:{color:AZUL, width:1}
+      x:0.3, y:2.35, w:11.1, h:1.55, fill:{color:AZUL_CLARO}, line:{color:AZUL, width:1}
     });
     slide.addText('📊 RESUMO EXECUTIVO', {
       x:0.5, y:2.42, w:5, h:0.25, fontSize:10, bold:true, color:AZUL, fontFace:'Open Sans'
     });
-    slide.addText(storyParts.join(' '), {
-      x:0.5, y:2.7, w:10.7, h:0.7, fontSize:10, color:'1E3A5F', fontFace:'Open Sans', valign:'top'
+    // Renderiza cada parte em sua própria linha com bullet
+    const storyBullets = storyParts.map(p => ({text: '▌ ' + p + '\n', options: {fontSize:9.5, color:'1E3A5F'}}));
+    slide.addText(storyBullets, {
+      x:0.5, y:2.7, w:10.7, h:1.15, fontFace:'Open Sans', valign:'top', paraSpaceBefore:2, paraSpaceAfter:2
     });
 
     // ============ SELL-IN × SELL-OUT (saúde do canal) ============
-    const yBaseSO = 3.55;
+    const yBaseSO = 4.0;
     slide.addShape(pptx.ShapeType.rect, {
       x:0.3, y:yBaseSO, w:11.1, h:1.5, fill:{color:'F0F9FF'}, line:{color:'0EA5E9', width:1}
     });
@@ -6037,8 +6176,18 @@ async function exportOnePager(){
         if(setSI_comp.has(k)){ aggSI[cli].comp += v; totalSI_comp += v; }
       }
 
+      // Filtros do dashboard - aplicados ao SO igual ao SI (base já filtrado)
+      const franquiasSetOP = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
+      const tipoSetOP = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
+      const produtoSetOP = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
+      const produtoSetNormOP = produtoSetOP ? construirSetProdutosNorm(produtoSetOP) : null;
+
       for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
+        if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
+        if(franquiasSetOP && !_franquiaCI(r.FRANQUIA, franquiasSetOP)) continue;
+        if(tipoSetOP && !tipoSetOP.has(r.TIPO_CLIENTE)) continue;
+        if(produtoSetNormOP && !produtoBateFiltro(r.PRODUTO, produtoSetNormOP)) continue;
         const k = `${r.ANO}-${r.MES}`;
         const cli = r.GRUPO_PAINEL;
         const v = +r.UNID || 0;
@@ -6124,9 +6273,9 @@ async function exportOnePager(){
     }
 
     // ============ ONDE ATACAR · Top 3 priorizado ============
-    const yBaseAcoes = 5.2;
+    const yBaseAcoes = 5.65;
     slide.addShape(pptx.ShapeType.rect, {
-      x:0.3, y:yBaseAcoes, w:11.1, h:2.0, fill:{color:'FFFBEB'}, line:{color:'F59E0B', width:1}
+      x:0.3, y:yBaseAcoes, w:11.1, h:1.65, fill:{color:'FFFBEB'}, line:{color:'F59E0B', width:1}
     });
     slide.addText('🎯 ONDE ATACAR · Top 3 prioridades', {
       x:0.5, y:yBaseAcoes+0.07, w:11, h:0.25, fontSize:10, bold:true, color:'92400E', fontFace:'Open Sans'
@@ -6149,14 +6298,14 @@ async function exportOnePager(){
       const wAcao = (11.1 - 0.4) / 3;  // largura de cada caixa
       top3.slice(0, 3).forEach((a, idx) => {
         const xAcao = 0.4 + idx * wAcao;
-        const yAcao = yBaseAcoes + 0.4;
+        const yAcao = yBaseAcoes + 0.35;
         const corCat = a.categoria === 'critico' ? 'DC2626' : (a.categoria === 'atencao' ? 'F59E0B' : '10B981');
         const fundoCat = a.categoria === 'critico' ? 'FEF2F2' : (a.categoria === 'atencao' ? 'FFFBEB' : 'ECFDF5');
         const icon = a.categoria === 'critico' ? '🔴' : (a.categoria === 'atencao' ? '🟠' : '🟢');
 
         // Caixa
         slide.addShape(pptx.ShapeType.rect, {
-          x:xAcao, y:yAcao, w:wAcao - 0.1, h:1.45, fill:{color: BRANCO}, line:{color: corCat, width:1.5}
+          x:xAcao, y:yAcao, w:wAcao - 0.1, h:1.2, fill:{color: BRANCO}, line:{color: corCat, width:1.5}
         });
 
         // Header da caixa (#1 + impacto)
@@ -6317,9 +6466,26 @@ function gerarStoryExecutivo(base, per, varPct){
   const direcao = varPct >= 0 ? 'crescimento' : 'queda';
   const intensidade = Math.abs(varPct) > 15 ? 'forte' : (Math.abs(varPct) > 5 ? 'consistente' : 'leve');
 
-  partes.push(`Performance: ${intensidade} ${direcao} de ${varPct >= 0 ? '+' : ''}${varPct.toFixed(1)}% em receita BRL vs ${per.labelComp}.`);
+  // ============ LINHA 1: Performance multi-métrica ============
+  function somarMetricaSE(dados, periodo, col){
+    const set = new Set(periodo.map(p => `${p.ano}-${p.mes}`));
+    let total = 0;
+    for(const r of dados){
+      const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+      if(set.has(k)) total += (+r[col] || 0);
+    }
+    return total;
+  }
+  const unidA = somarMetricaSE(base, per.periodoAtual, COLS.VALOR_UNID);
+  const unidC = somarMetricaSE(base, per.periodoComp, COLS.VALOR_UNID);
+  const brlA = somarMetricaSE(base, per.periodoAtual, COLS.VALOR_BRL);
+  const brlC = somarMetricaSE(base, per.periodoComp, COLS.VALOR_BRL);
+  const unidV = unidC ? ((unidA - unidC) / unidC * 100) : 0;
+  const brlV = brlC ? ((brlA - brlC) / brlC * 100) : 0;
 
-  // Decomposição (se aplicável)
+  partes.push(`Performance: ${intensidade} ${direcao} de ${varPct >= 0 ? '+' : ''}${varPct.toFixed(1)}% em BRL (UNID ${unidV>=0?'+':''}${unidV.toFixed(1)}%) vs ${per.labelComp}.`);
+
+  // ============ LINHA 2: Decomposição (se aplicável) ============
   if(window.__decompResultado){
     const d = window.__decompResultado;
     const totalAbs = Math.abs(d.totalVolume) + Math.abs(d.totalPreco) + Math.abs(d.totalMix);
@@ -6327,15 +6493,11 @@ function gerarStoryExecutivo(base, per, varPct){
       const pctV = (Math.abs(d.totalVolume) / totalAbs * 100);
       const pctP = (Math.abs(d.totalPreco) / totalAbs * 100);
       const pctM = (Math.abs(d.totalMix) / totalAbs * 100);
-      let driver = '';
-      if(pctV > pctP && pctV > pctM) driver = `principalmente por volume (${pctV.toFixed(0)}%)`;
-      else if(pctP > pctM) driver = `principalmente por preço (${pctP.toFixed(0)}%)`;
-      else driver = `principalmente por mix (${pctM.toFixed(0)}%)`;
-      partes.push(`Decomposição mostra que o movimento veio ${driver}.`);
+      partes.push(`Decomposição: Volume ${pctV.toFixed(0)}% + Preço ${pctP.toFixed(0)}% + Mix ${pctM.toFixed(0)}%.`);
     }
   }
 
-  // Maior contribuidor positivo e negativo (em BRL para consistência)
+  // ============ LINHA 3: Maior alavanca e ofensor por cliente ============
   const periodoAtualSet = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
   const periodoCompSet = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
   const aggCli = {};
@@ -6347,12 +6509,45 @@ function gerarStoryExecutivo(base, per, varPct){
     if(periodoAtualSet.has(k)) aggCli[cli].atual += v;
     if(periodoCompSet.has(k)) aggCli[cli].comp += v;
   }
-  const linhasCli = Object.keys(aggCli).map(c => ({nome:c, dAbs:aggCli[c].atual - aggCli[c].comp}));
+  const linhasCli = Object.keys(aggCli).map(c => ({nome:c, dAbs:aggCli[c].atual - aggCli[c].comp, atual: aggCli[c].atual}));
   const topPos = linhasCli.filter(r => r.dAbs > 0).sort((a,b) => b.dAbs - a.dAbs)[0];
   const topNeg = linhasCli.filter(r => r.dAbs < 0).sort((a,b) => a.dAbs - b.dAbs)[0];
 
-  if(topPos) partes.push(`Maior alavanca: ${topPos.nome} (+${fmt(topPos.dAbs)}).`);
-  if(topNeg) partes.push(`Maior ofensor: ${topNeg.nome} (-${fmt(Math.abs(topNeg.dAbs))}).`);
+  const alavTxt = [];
+  if(topPos) alavTxt.push(`maior alavanca ${topPos.nome} (+${fmt(topPos.dAbs)})`);
+  if(topNeg) alavTxt.push(`maior ofensor ${topNeg.nome} (-${fmt(Math.abs(topNeg.dAbs))})`);
+  if(alavTxt.length > 0) partes.push(alavTxt.join('; ') + '.');
+
+  // ============ LINHA 4: Concentração + Franquia ============
+  const totalAtual = linhasCli.reduce((s, r) => s + r.atual, 0);
+  const top5Soma = [...linhasCli].sort((a,b) => b.atual - a.atual).slice(0,5).reduce((s,r) => s+r.atual, 0);
+  const concPct = totalAtual > 0 ? (top5Soma / totalAtual * 100) : 0;
+
+  // Top franquia
+  const aggFr = {};
+  for(const r of base){
+    const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+    const fr = r[COLS.FRANQUIA];
+    if(!aggFr[fr]) aggFr[fr] = {atual:0, comp:0};
+    const v = +r[COLS.VALOR_BRL] || 0;
+    if(periodoAtualSet.has(k)) aggFr[fr].atual += v;
+    if(periodoCompSet.has(k)) aggFr[fr].comp += v;
+  }
+  const frOrd = Object.entries(aggFr).map(([n,a]) => ({
+    nome: n, atual: a.atual, dPct: a.comp ? ((a.atual-a.comp)/a.comp*100) : 0
+  })).sort((a,b) => b.atual - a.atual);
+  const frTxt = frOrd.slice(0,2).map(f => `${f.nome} ${f.dPct>=0?'+':''}${f.dPct.toFixed(1)}%`).join(', ');
+  partes.push(`Top 5 clientes = ${concPct.toFixed(0)}% do faturamento. Franquias: ${frTxt}.`);
+
+  // ============ LINHA 5: Alerta crítico (do Plano de Ação) ============
+  if(window.__planoAcaoResultado){
+    const pa = window.__planoAcaoResultado;
+    if(pa.criticos && pa.criticos.length > 0){
+      const top = pa.criticos[0];
+      const sinal = top.impactoSinal >= 0 ? '+' : '-';
+      partes.push(`Alerta crítico: ${top.nome} (${sinal}${fmt(Math.abs(top.impactoSinal))}, ${top.dPct>=0?'+':''}${top.dPct.toFixed(1)}%).`);
+    }
+  }
 
   return partes;
 }
@@ -6524,7 +6719,7 @@ async function exportPPTX(){
         if(tipoSetSO && !tipoSetSO.has(r.TIPO_CLIENTE)) continue;
         if(produtoSetSO && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSetSO))) continue;
         const k = `${r.ANO}-${r.MES}`;
-        const v = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+        const v = getValorSO(r);
         if(setAtualSOKpi.has(k)) atual += v;     // <<< respeita filtro
         if(setCompSOKpi.has(k)) comp += v;       // <<< respeita filtro
         if(k === kAtualMom) momAtual += v;
@@ -6961,7 +7156,7 @@ async function exportPPTX(){
         const isAtual = periodoAtualSetSO_C.has(k);
         const isComp = periodoCompSetSO_C.has(k);
         if(!isAtual && !isComp) continue;
-        const valor = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+        const valor = getValorSO(r);
         const brl = +r.BRL || 0;
         const prod = r.PRODUTO, cli = r.GRUPO_PAINEL, fr = r.FRANQUIA;
         if(prod){
@@ -7360,7 +7555,7 @@ async function exportPPTX(){
           const prodNorm = normalizarNomeProduto(r.PRODUTO);  // <<< normaliza
           if(!prodNorm) continue;
           if(!soPorProdutoPpt[prodNorm]) soPorProdutoPpt[prodNorm] = {atual:0, comp:0};
-          const valor = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+          const valor = getValorSO(r);
           if(isAtual) soPorProdutoPpt[prodNorm].atual += valor;
           if(isComp) soPorProdutoPpt[prodNorm].comp += valor;
         }
@@ -7766,7 +7961,7 @@ async function exportPPTX(){
         const isAtual = setAtualSO.has(k);
         const isComp = setCompSO.has(k);
         if(!isAtual && !isComp) continue;
-        const valor = metricaAtual === 'UNID' ? (+r.UNID || 0) : (+r.BRL || 0);
+        const valor = getValorSO(r);
         const brl = +r.BRL || 0;
         const unid = +r.UNID || 0;  // captura unidades sempre (pra filtro de relevância)
 
