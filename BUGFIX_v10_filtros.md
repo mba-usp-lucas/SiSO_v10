@@ -1,119 +1,68 @@
-# Atualizações v10 - Resumo Executivo + USD + Bugfixes
+# Atualizações v10 - Bugfix filtros + insights + USD
 
-## 📋 Mudanças nesta versão
+## 🐛 Bugs corrigidos nesta rodada
 
-### 🌎 1. Taxa BRL→USD configurável
-- **Variável `TAXA_BRL_USD` no topo do `sales_dashboard_v10.py`** (default: 5.37)
-- Para atualizar a cotação, basta editar essa linha e rodar de novo
-- Exposta ao JS via `window.TAXA_BRL_USD`
+### Bug 1: Texto "cresce" quando é queda
 
-### 💵 2. Conversão USD aplicada em todo sell-out
-- Função global `getValorSO(r)` que respeita a métrica selecionada
-- Para USD em sell-out (que não tem USD nativo): converte BRL_PPP / taxa
-- Aplicada em **12 pontos do código**:
-  - renderKPIs (KPIs principais)
-  - renderInsights, renderTargets, renderChartSellout
-  - renderDecomposicao, renderUF, renderComparativo, renderPlanoAcao
-  - agregarSellout (Top 15)
-  - exportPPTX (3 slides)
+**Sintoma:** Diagnóstico exibia "Produto cai -32.5% enquanto franquia Pós-Op. & Patanol S **cresce -16.5%**" (cresce com valor negativo)
 
-### 📊 3. Coluna USD na tabela Resumo Comparativo (por rede)
-- **Sell-in**: usa USD nativo (Vendas_USD)
-- **Sell-out**: converte BRL_PPP pela taxa (mostra `R$5.37/US$` no header)
-- 3 linhas em cada seção: Unidades + Reais (R$) + USD
+**Correção:** Função `renderPlanoAcao` agora usa `verboFr` dinâmico:
+- `dPctFr >= 0` → "cresce"  
+- `dPctFr < 0` → "cai"
 
-### 💡 4. Card Insights Automáticos enriquecido (Dashboard)
-Adicionado no topo do card:
-- 📈 **Performance multi-métrica**: UNID + BRL + driver (volume/preço)
-- 🔍 **Decomposição** V×P×M com valores absolutos
-- 📊 **Concentração** Top 5 + variação por franquia
+Resultado: "Produto cai -32.5% enquanto franquia Pós-Op. & Patanol S **cai -16.5%** (gap de -15.9pp)."
 
-Adicionado no final:
-- 🔴 **Alerta crítico** (top crítico do Plano de Ação)
-- 🚀 **Oportunidade** (top oportunidade do Plano de Ação)
+### Bug 4: Filtro de cliente "GRUPO X" pegava OUTROS clientes começando com "GRUPO"
 
-### 📑 5. Resumo Executivo do One-Pager (PPT) enriquecido
-Função `gerarStoryExecutivo` agora produz 5 bullets verticais:
-- ▌ Performance multi-métrica (BRL + UNID)
-- ▌ Decomposição Volume + Preço + Mix
-- ▌ Maior alavanca + maior ofensor
-- ▌ Concentração Top 5 + franquias com variação
-- ▌ Alerta crítico (se houver)
+**Sintoma:** Filtrar "Pague Menos" (que no sell-in chama-se "GRUPO PAGUE MENOS") trazia também:
+- GRUPO NISSEI
+- GRUPO DPSP
+- Grupo S2
+- Santa Lucia
+- Outros grupos
 
-Caixa do resumo ampliada (h:1.55) com bullets formatados.
+**Causa:** A função `clienteBateFiltroSO` usava match por "primeira palavra significativa de pelo menos 4 chars". Como "GRUPO" tem 5 chars, ele casava com TODOS os clientes do sell-out que começam com "GRUPO".
 
-### 🔄 6. Ordem de render ajustada
-`renderDecomposicao` + `renderPlanoAcao` agora rodam **antes** de `renderInsights`.
-Isso garante que os dados estejam disponíveis para o card Insights enriquecido.
+**Correção:** Lista de **palavras genéricas ignoradas no match**:
+```javascript
+const PALAVRAS_GENERICAS_REDE = new Set([
+  'GRUPO', 'FARMA', 'FARMACIA', 'FARMACIAS', 'DROGA', 'DROGARIA', 'DROGARIAS',
+  'REDE', 'GROUP', 'HOLDING', 'COMERCIAL', 'DIST', 'DISTRIBUIDOR',
+  'DISTRIBUIDORA', 'CIA', 'LTDA', 'BRASIL'
+]);
+```
 
----
+Match flexível agora:
+1. Match exato
+2. Substring (≥5 chars)
+3. Palavra significativa do nome (≥4 chars E NÃO genérica)
 
-## 🐛 Bugfixes anteriores (v10)
+**Resultado testado:**
+- Filtro "GRUPO PAGUE MENOS" → casa Pague Menos ✅, rejeita Nissei/DPSP/Profarma ✅
+- Filtro "RAIA DROGASIL" → casa "RAIA DROGASIL" e "GRUPO RAIA DROGASIL" ✅
+- Filtro "PROFARMA" → casa "PROFARMA DIST" e "GRUPO PROFARMA" ✅, rejeita "GRUPO DPSP" ✅
 
-### Filtros Sell-out ignoravam cliente
-- `clienteBateFiltroSO` movida para escopo GLOBAL
-- Filtro de cliente aplicado em 7 cards de sell-out
+## ⏳ Bugs em investigação (precisa mais detalhes)
 
-### Card "UF" → "Canal (CHAN_DESC)"
-- Título, tabela, ranking e insights atualizados
-- Removido mapa de 27 estados (não faz sentido para canal)
+### Bug 2: "Sell-out · Jan/2026 a Mar/2026 - R$ 159.00M (últimos 12 meses)"
+- Não consegui localizar exatamente onde esse texto aparece
+- **Preciso de mais detalhe:** em qual card? Resumo? KPI? Insights?
 
-### One-Pager mostrava total Brasil em vez do filtrado
-- Adicionados 4 filtros antes do loop sell-out no `exportOnePager`
-
-### Dropdown abria atrás da barra NAVEGAR
-- `.searchable-list` z-index: 100 → 500
-- `.filters` e `.filters-wrapper` ganham `position:relative; z-index:200`
-- `.nav-menu` z-index: 100 → 50
+### Bug 3: "Share de RAIA DROGASIL: 12.49% do mercado" não respeita filtro
+- O cálculo de share usa `filtrarBaseSemCliente()` que respeita filtro de data e franquia, mas IGNORA filtro de cliente intencionalmente (pra ser mercado total)
+- **É comportamento esperado** mas o texto pode estar confuso?
 
 ---
 
-## ✅ Validações
-- Sintaxe JS OK (ambos scripts inline)
-- Sintaxe Python OK
-- Python rodou end-to-end (605 KB HTML gerado)
-- 12 pontos com `getValorSO()` confirmados
+## 📋 Tudo que foi feito na v10
 
-## 🧪 Como testar
+✅ Filtros sell-out funcionando em todos os cards  
+✅ Conversão USD em todo sell-out (taxa configurável no Python)  
+✅ Coluna USD na Resumo Comparativo  
+✅ Card "UF" → "Canal (CHAN_DESC)"  
+✅ Dropdown acima da nav-menu (z-index)  
+✅ One-Pager respeita filtro cliente  
+✅ Resumo Executivo enriquecido (Insights + One-Pager PPT)  
+✅ Texto "cresce/cai" dinâmico no diagnóstico  
+✅ Match cliente ignorando palavras genéricas (GRUPO, FARMA, DROGARIA)  
 
-1. Substitua ambos arquivos no seu projeto:
-   - `dashboard_template_v10.html`
-   - `sales_dashboard_v10.py`
-
-2. (Opcional) Atualize `TAXA_BRL_USD` no Python se a cotação mudou
-
-3. Rode `python sales_dashboard_v10.py`
-
-4. Abra o HTML gerado e teste:
-
-   **Card "💡 Insights Automáticos"** (deve ter linhas como):
-   ```
-   📈 Performance: crescimento moderado de +12% em BRL (UNID +8% · BRL +12%)...
-   🔍 Decomposição (BRL): Volume contribui 60%... Preço 30%... Mix 10%...
-   📊 Concentração: Top 5 clientes = 65% · Franquias: PHARMA +14%, LENTES +8%
-   ...
-   🔴 Alerta crítico: DPSP DROGARIAS com impacto de -R$1.2M...
-   🚀 Oportunidade: TOTAL 30 com impacto positivo de +R$800k...
-   ```
-
-   **Tabela "Resumo Comparativo"** (3 linhas em cada seção):
-   ```
-   📦 SELL-IN
-   - Unidades: 1.5M    +8%
-   - Reais (R$): R$48M  +12%
-   - USD: US$8.9M       +12%
-   
-   🛒 SELL-OUT
-   - Unidades: 1.2M    +6%
-   - Reais (R$): R$38M  +8%
-   - USD (R$5.37/US$): US$7.1M  +8%
-   ```
-
-   **One-Pager (PPT)** - bloco "📊 RESUMO EXECUTIVO":
-   ```
-   ▌ Performance: forte crescimento de +12% em BRL (UNID +8%) vs Mai/24-Abr/25.
-   ▌ Decomposição: Volume 60% + Preço 30% + Mix 10%.
-   ▌ maior alavanca CLARIL (+R$5M); maior ofensor TRAVATAN Z (-R$2M).
-   ▌ Top 5 clientes = 65% do faturamento. Franquias: PHARMA +14%, LENTES +8%.
-   ▌ Alerta crítico: DPSP DROGARIAS (-R$1.2M, -28%).
-   ```

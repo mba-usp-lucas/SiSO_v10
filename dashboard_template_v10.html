@@ -1131,19 +1131,38 @@ function getValorSO(registro){
   return brl; // BRL default
 }
 
+// Palavras genéricas que devem ser IGNORADAS no match por primeira palavra
+// (caso contrário, filtrar "GRUPO PAGUE MENOS" casaria com "GRUPO NISSEI", "GRUPO DPSP" etc.)
+const PALAVRAS_GENERICAS_REDE = new Set([
+  'GRUPO', 'FARMA', 'FARMACIA', 'FARMACIAS', 'DROGA', 'DROGARIA', 'DROGARIAS',
+  'REDE', 'GROUP', 'HOLDING', 'COMERCIAL', 'DIST', 'DISTRIBUIDOR',
+  'DISTRIBUIDORA', 'CIA', 'LTDA', 'BRASIL'
+]);
+
 function clienteBateFiltroSO(clienteSO){
   // Lê estado atual dos filtros (variáveis globais)
   if(!clientesSelecionados || clientesSelecionados.length === 0) return true; // sem filtro = aceita tudo
   if(clientesSelecionados.includes(clienteSO)) return true; // match exato
+
   // Match flexível: o nome da rede pode estar em formato diferente entre SI e SO
   const upSO = String(clienteSO).toUpperCase().trim();
   for(const filtro of clientesSelecionados){
     const upF = String(filtro).toUpperCase().trim();
-    if(upSO.includes(upF) || upF.includes(upSO)) return true;
-    // Match por primeira palavra significativa (ex: RAIA, DPSP, PROFARMA)
-    const firstSO = upSO.split(/\s+/).find(w => w.length >= 4);
-    const firstF = upF.split(/\s+/).find(w => w.length >= 4);
-    if(firstSO && firstF && firstSO === firstF) return true;
+
+    // Substring match (mas exige tamanho mínimo para evitar falsos positivos)
+    // Ex: "RAIA DROGASIL" inclui "RAIA" (4 chars) é válido
+    // Mas só aceita se a substring tiver pelo menos 5 chars
+    if(upF.length >= 5 && upSO.includes(upF)) return true;
+    if(upSO.length >= 5 && upF.includes(upSO)) return true;
+
+    // Match por primeira palavra significativa, IGNORANDO genéricas
+    // Pega TODAS as palavras significativas (>=4 chars E não genérica)
+    const palavrasSO = upSO.split(/\s+/).filter(w => w.length >= 4 && !PALAVRAS_GENERICAS_REDE.has(w));
+    const palavrasF = upF.split(/\s+/).filter(w => w.length >= 4 && !PALAVRAS_GENERICAS_REDE.has(w));
+    // Match se qualquer palavra significativa do filtro aparece no SO
+    for(const palavraF of palavrasF){
+      if(palavrasSO.includes(palavraF)) return true;
+    }
   }
   return false;
 }
@@ -3004,10 +3023,13 @@ function renderPlanoAcao(data, per){
 
     const tend = calcularSlope(seriesProdutos[prod] || {});
 
-    // Underperformance: produto cai enquanto franquia cresce
+    // Underperformance: produto cai enquanto franquia tem performance melhor
     if(dPct < -5 && gapVsFr < -8 && Math.abs(dAbs) > 100000){
       const urgencia = Math.min(tend.mesesQueda / 6, 1.0);
-      let acao = `Investigar concorrência · Ativação cirúrgica · Ampliar visitas técnicas (franquia ${fr} cresce ${dPctFr.toFixed(1)}%)`;
+      // Texto correto conforme sinal: cresce/cai
+      const verboFr = dPctFr >= 0 ? 'cresce' : 'cai';
+      const valorFr = `${dPctFr >= 0 ? '+' : ''}${dPctFr.toFixed(1)}%`;
+      let acao = `Investigar concorrência · Ativação cirúrgica · Ampliar visitas técnicas (franquia ${fr} ${verboFr} ${valorFr})`;
       let categoria = 'atencao';
       if(Math.abs(dAbs) > 500000 && dPct < -15) categoria = 'critico';
 
@@ -3023,7 +3045,7 @@ function renderPlanoAcao(data, per){
         mesesQueda: tend.mesesQueda,
         acao: acao,
         soContexto: soContexto,
-        diagnostico: `Produto cai ${dPct.toFixed(1)}% enquanto franquia ${fr} cresce ${dPctFr.toFixed(1)}% (gap de ${gapVsFr.toFixed(1)}pp).${tend.mesesQueda >= 3 ? ' Em queda há ' + tend.mesesQueda + ' meses.' : ''}`
+        diagnostico: `Produto cai ${dPct.toFixed(1)}% enquanto franquia ${fr} ${verboFr} ${valorFr} (gap de ${gapVsFr.toFixed(1)}pp).${tend.mesesQueda >= 3 ? ' Em queda há ' + tend.mesesQueda + ' meses.' : ''}`
       });
     } else if(dPct > 15 && p.brl > 200000){
       // Oportunidade de produto
