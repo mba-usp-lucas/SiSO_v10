@@ -1,68 +1,91 @@
-# Atualizações v10 - Bugfix filtros + insights + USD
+# Atualizações v10 - Bugfix PPT comparativo + análise SO dinâmica
 
 ## 🐛 Bugs corrigidos nesta rodada
 
-### Bug 1: Texto "cresce" quando é queda
+### Bug 1: PPT Comparativo Sell-in × Sell-out não filtrava cliente
 
-**Sintoma:** Diagnóstico exibia "Produto cai -32.5% enquanto franquia Pós-Op. & Patanol S **cresce -16.5%**" (cresce com valor negativo)
+**Sintoma:** No HTML o filtro funcionava normal. Mas ao exportar o PPT (slide "🔄 Análise Comparativa Sell-in × Sell-out"), o sell-in trazia TODAS as redes mesmo com cliente filtrado.
 
-**Correção:** Função `renderPlanoAcao` agora usa `verboFr` dinâmico:
-- `dPctFr >= 0` → "cresce"  
-- `dPctFr < 0` → "cai"
-
-Resultado: "Produto cai -32.5% enquanto franquia Pós-Op. & Patanol S **cai -16.5%** (gap de -15.9pp)."
-
-### Bug 4: Filtro de cliente "GRUPO X" pegava OUTROS clientes começando com "GRUPO"
-
-**Sintoma:** Filtrar "Pague Menos" (que no sell-in chama-se "GRUPO PAGUE MENOS") trazia também:
-- GRUPO NISSEI
-- GRUPO DPSP
-- Grupo S2
-- Santa Lucia
-- Outros grupos
-
-**Causa:** A função `clienteBateFiltroSO` usava match por "primeira palavra significativa de pelo menos 4 chars". Como "GRUPO" tem 5 chars, ele casava com TODOS os clientes do sell-out que começam com "GRUPO".
-
-**Correção:** Lista de **palavras genéricas ignoradas no match**:
+**Causa:** No loop de agregação do sell-in (linha ~7140) faltava o filtro de cliente:
 ```javascript
-const PALAVRAS_GENERICAS_REDE = new Set([
-  'GRUPO', 'FARMA', 'FARMACIA', 'FARMACIAS', 'DROGA', 'DROGARIA', 'DROGARIAS',
-  'REDE', 'GROUP', 'HOLDING', 'COMERCIAL', 'DIST', 'DISTRIBUIDOR',
-  'DISTRIBUIDORA', 'CIA', 'LTDA', 'BRASIL'
-]);
+// ANTES (sem filtro cliente)
+for(const r of rawData){
+  if(fontesSetC && !fontesSetC.has(...)) continue;
+  if(franquiasSetC && !franquiasSetC.has(...)) continue;
+  if(tipoSetC && !tipoSetC.has(...)) continue;
+  if(produtoSetC && !produtoSetC.has(...)) continue;
+  // ← faltava filtro cliente aqui
 ```
 
-Match flexível agora:
-1. Match exato
-2. Substring (≥5 chars)
-3. Palavra significativa do nome (≥4 chars E NÃO genérica)
+**Correção:** Adicionado `clienteSetC` e filtro:
+```javascript
+const clienteSetC = clientesSelecionados.length ? new Set(clientesSelecionados) : null;
+...
+if(clienteSetC && !clienteSetC.has(r[COLS.CLIENTE])) continue;
+```
 
-**Resultado testado:**
-- Filtro "GRUPO PAGUE MENOS" → casa Pague Menos ✅, rejeita Nissei/DPSP/Profarma ✅
-- Filtro "RAIA DROGASIL" → casa "RAIA DROGASIL" e "GRUPO RAIA DROGASIL" ✅
-- Filtro "PROFARMA" → casa "PROFARMA DIST" e "GRUPO PROFARMA" ✅, rejeita "GRUPO DPSP" ✅
-
-## ⏳ Bugs em investigação (precisa mais detalhes)
-
-### Bug 2: "Sell-out · Jan/2026 a Mar/2026 - R$ 159.00M (últimos 12 meses)"
-- Não consegui localizar exatamente onde esse texto aparece
-- **Preciso de mais detalhe:** em qual card? Resumo? KPI? Insights?
-
-### Bug 3: "Share de RAIA DROGASIL: 12.49% do mercado" não respeita filtro
-- O cálculo de share usa `filtrarBaseSemCliente()` que respeita filtro de data e franquia, mas IGNORA filtro de cliente intencionalmente (pra ser mercado total)
-- **É comportamento esperado** mas o texto pode estar confuso?
+O sell-out já tinha o filtro (via `clienteBateFiltroSO`). Agora ambos respeitam.
 
 ---
 
-## 📋 Tudo que foi feito na v10
+### Bug 2: Análise de quedas/crescimento Sell-out sempre mostrava M-2
 
-✅ Filtros sell-out funcionando em todos os cards  
-✅ Conversão USD em todo sell-out (taxa configurável no Python)  
-✅ Coluna USD na Resumo Comparativo  
-✅ Card "UF" → "Canal (CHAN_DESC)"  
-✅ Dropdown acima da nav-menu (z-index)  
-✅ One-Pager respeita filtro cliente  
-✅ Resumo Executivo enriquecido (Insights + One-Pager PPT)  
-✅ Texto "cresce/cai" dinâmico no diagnóstico  
-✅ Match cliente ignorando palavras genéricas (GRUPO, FARMA, DROGARIA)  
+**Sintoma:** Quando filtrava período YTD/MAT/range no dashboard, o card "Top 15 Quedas" e "Top 15 Crescimentos" em modo SO **sempre mostrava só Mar/2026** (último mês M-2) em vez de respeitar o filtro selecionado.
 
+**Causa:** A função `agregarSellout(groupBy)` hardcodava `kAtual = ultMes` e `kComp = ultMes-1ano`, ignorando o `per` do filtro do dashboard.
+
+**Correção:**
+
+1. **`agregarSellout` agora aceita parâmetro `per` opcional:**
+```javascript
+function agregarSellout(groupBy, per){
+  // Se per foi passado, usa período do filtro (cortado pra M-2)
+  // Senão, fallback ao comportamento antigo (só último mês)
+}
+```
+
+2. **12 chamadas atualizadas** para passar `per`:
+   - renderTopClientesSO ✅
+   - renderTopProdutosSO ✅
+   - renderCrescimento (SO) ✅
+   - renderQueda (SO) ✅
+   - renderDiagnosticoCresce (SO) ✅
+   - renderDiagnosticoQueda (SO) ✅
+   - exportPPTX top clientes/produtos SO ✅
+
+3. **Avisos visuais ajustados** para mostrar o período correto:
+   - Antes: `🛒 Sell-out · Mar/2026 · M-2`
+   - Agora: `🛒 Sell-out · Jan/2026 a Mar/2026 · M-2` (se filtro for YTD)
+
+### Comportamento esperado agora
+| Filtro do dashboard | Análise Quedas SO mostra |
+|---|---|
+| Mar/2026 único | Mar/2026 vs Mar/2025 |
+| YTD 2026 | Jan-Mar/2026 vs Jan-Mar/2025 (cortado M-2) |
+| MAT 12m | Abr/25-Mar/26 vs Abr/24-Mar/25 (cortado M-2) |
+| Range Jan-Mar/2026 | Jan-Mar/2026 vs Jan-Mar/2025 |
+| Range Jan-Mai/2026 | Jan-Mar/2026 vs Jan-Mar/2025 (avisa M-2) |
+
+---
+
+## ✅ Validações
+- Sintaxe JS OK
+- Sintaxe Python OK
+- Python end-to-end rodou (0.61 MB gerado)
+- 12 chamadas agregarSellout agora passam per
+- 0 chamadas sem per
+
+## 🧪 Como testar
+
+1. Substitua `dashboard_template_v10.html` no projeto
+2. Rode `python sales_dashboard_v10.py`
+3. **Teste PPT comparativo:**
+   - Filtre por uma rede específica (ex: RAIA DROGASIL)
+   - Exporte PPT
+   - Verifique slide "🔄 Análise Comparativa" — deve mostrar apenas RAIA no sell-in ✅
+4. **Teste análise quedas SO com período YTD:**
+   - Selecione YTD 2026 (Jan-Mar/2026)
+   - Vá ao card "Top 15 Quedas e Crescimentos"
+   - Troque fonte para Sell-Out
+   - Verifique aviso: `🛒 Sell-out · Jan/2026 a Mar/2026 · ⚠️ M-2 · ≥50 unid`
+   - Os valores na tabela devem refletir os 3 meses YTD acumulados ✅
