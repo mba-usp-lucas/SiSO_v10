@@ -5347,23 +5347,48 @@ function renderTopClientes(data, per){
 // HELPER: Filtrar e agregar sell-out por chave
 // Retorna {chave: {atual, comp, brlAtual, ...}} usando ultimo mes M-2
 // ============================================================
-function agregarSellout(groupBy){
+function agregarSellout(groupBy, per){
   if(!rawDataSellout || rawDataSellout.length === 0 || !selloutUltimoPeriodo) return null;
   const franquiasSet = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
   const tipoSet = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
   const produtoSet = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
-  const ultMes = selloutUltimoPeriodo;
-  const kAtual = `${ultMes.ano}-${ultMes.mes}`;
-  const kComp = `${ultMes.ano-1}-${ultMes.mes}`;
+
+  const ultMesSO = selloutUltimoPeriodo;
+
+  // Se per foi passado, usa o período do filtro (ex: YTD, MAT, range);
+  // se nao, fallback ao último mês disponível (M-2)
+  let setAtualSO, setCompSO;
+  if(per && per.periodoAtual && per.periodoAtual.length > 0){
+    // Cortar para meses disponíveis em SO (defasagem M-2)
+    function temNoSO(p){
+      return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
+    }
+    let periodoAtualSO = per.periodoAtual.filter(temNoSO);
+    let periodoCompSO = periodoAtualSO.map(p => ({ano: p.ano - 1, mes: p.mes}));
+    if(periodoAtualSO.length === 0){
+      // fallback: ultMes disponivel
+      periodoAtualSO = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
+      periodoCompSO = [{ano: ultMesSO.ano - 1, mes: ultMesSO.mes}];
+    }
+    setAtualSO = new Set(periodoAtualSO.map(p => `${p.ano}-${p.mes}`));
+    setCompSO = new Set(periodoCompSO.map(p => `${p.ano}-${p.mes}`));
+  } else {
+    // Compatibilidade: comportamento antigo (só último mês M-2)
+    setAtualSO = new Set([`${ultMesSO.ano}-${ultMesSO.mes}`]);
+    setCompSO = new Set([`${ultMesSO.ano-1}-${ultMesSO.mes}`]);
+  }
+
   const result = {};
   for(const r of rawDataSellout){
-      if(!selloutCanalOk(r)) continue;
+    if(!selloutCanalOk(r)) continue;
     if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
     if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
     if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
     if(produtoSet && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSet))) continue;
     const k = `${r.ANO}-${r.MES}`;
-    if(k !== kAtual && k !== kComp) continue;
+    const isAtual = setAtualSO.has(k);
+    const isComp = setCompSO.has(k);
+    if(!isAtual && !isComp) continue;
     // Para PRODUTO, usar nome normalizado pra casar com SI ("PATANOL S (NVR)" -> "PATANOL S")
     let chave;
     if(groupBy === 'PRODUTO'){
@@ -5378,8 +5403,8 @@ function agregarSellout(groupBy){
     const brl = +r.BRL || 0;
     const unid = +r.UNID || 0;
     if(!result[chave]) result[chave] = {atual:0, comp:0, brlAtual:0, unidAtual:0, unidComp:0, franquia: r.FRANQUIA, tipo: r.TIPO_CLIENTE};
-    if(k === kAtual){ result[chave].atual += valor; result[chave].brlAtual += brl; result[chave].unidAtual += unid; }
-    if(k === kComp){ result[chave].comp += valor; result[chave].unidComp += unid; }
+    if(isAtual){ result[chave].atual += valor; result[chave].brlAtual += brl; result[chave].unidAtual += unid; }
+    if(isComp){ result[chave].comp += valor; result[chave].unidComp += unid; }
   }
   return result;
 }
@@ -5389,11 +5414,23 @@ function agregarSellout(groupBy){
 // ============================================================
 function renderTopClientesSO(per){
   const ultMes = selloutUltimoPeriodo;
-  const labelMes = `${MESES_NOME[ultMes.mes-1]}/${ultMes.ano} vs ${MESES_NOME[ultMes.mes-1]}/${ultMes.ano-1}`;
-  document.getElementById('topClientesAvisoSO').style.display = 'inline-block';
-  document.getElementById('topClientesAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelMes} · M-2 · ≥50 unid</span>`;
 
-  const agg = agregarSellout('GRUPO_PAINEL') || {};
+  // Calcular label do período seguindo o filtro
+  function temNoSOtc(p){
+    return (p.ano < ultMes.ano) || (p.ano === ultMes.ano && p.mes <= ultMes.mes);
+  }
+  let perAtualSOtc = per.periodoAtual.filter(temNoSOtc);
+  if(perAtualSOtc.length === 0){
+    perAtualSOtc = [{ano: ultMes.ano, mes: ultMes.mes}];
+  }
+  const labelPerSOtc = perAtualSOtc.length === 1
+    ? `${MESES_NOME[perAtualSOtc[0].mes-1]}/${perAtualSOtc[0].ano} vs ${MESES_NOME[perAtualSOtc[0].mes-1]}/${perAtualSOtc[0].ano-1}`
+    : `${MESES_NOME[perAtualSOtc[0].mes-1]}/${perAtualSOtc[0].ano} a ${MESES_NOME[perAtualSOtc[perAtualSOtc.length-1].mes-1]}/${perAtualSOtc[perAtualSOtc.length-1].ano}`;
+  const avisoM2tc = perAtualSOtc.length < per.periodoAtual.length ? ' ⚠️ M-2' : '';
+  document.getElementById('topClientesAvisoSO').style.display = 'inline-block';
+  document.getElementById('topClientesAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelPerSOtc}${avisoM2tc} · ≥50 unid</span>`;
+
+  const agg = agregarSellout('GRUPO_PAINEL', per) || {};
   const linhas = Object.keys(agg).map(c => {
     const a = agg[c].atual, cp = agg[c].comp;
     return {cliente:c, tipo:agg[c].tipo, atual:a, comp:cp, dAbs:a-cp, dPct:cp?((a-cp)/cp*100):(a>0?100:0)};
@@ -5468,11 +5505,23 @@ function renderTopProdutos(data, per){
 // ============================================================
 function renderTopProdutosSO(per){
   const ultMes = selloutUltimoPeriodo;
-  const labelMes = `${MESES_NOME[ultMes.mes-1]}/${ultMes.ano} vs ${MESES_NOME[ultMes.mes-1]}/${ultMes.ano-1}`;
-  document.getElementById('topProdutosAvisoSO').style.display = 'inline-block';
-  document.getElementById('topProdutosAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelMes} · M-2 · ≥50 unid</span>`;
 
-  const agg = agregarSellout('PRODUTO') || {};
+  // Calcular label do período seguindo o filtro
+  function temNoSOtp(p){
+    return (p.ano < ultMes.ano) || (p.ano === ultMes.ano && p.mes <= ultMes.mes);
+  }
+  let perAtualSOtp = per.periodoAtual.filter(temNoSOtp);
+  if(perAtualSOtp.length === 0){
+    perAtualSOtp = [{ano: ultMes.ano, mes: ultMes.mes}];
+  }
+  const labelPerSOtp = perAtualSOtp.length === 1
+    ? `${MESES_NOME[perAtualSOtp[0].mes-1]}/${perAtualSOtp[0].ano} vs ${MESES_NOME[perAtualSOtp[0].mes-1]}/${perAtualSOtp[0].ano-1}`
+    : `${MESES_NOME[perAtualSOtp[0].mes-1]}/${perAtualSOtp[0].ano} a ${MESES_NOME[perAtualSOtp[perAtualSOtp.length-1].mes-1]}/${perAtualSOtp[perAtualSOtp.length-1].ano}`;
+  const avisoM2tp = perAtualSOtp.length < per.periodoAtual.length ? ' ⚠️ M-2' : '';
+  document.getElementById('topProdutosAvisoSO').style.display = 'inline-block';
+  document.getElementById('topProdutosAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelPerSOtp}${avisoM2tp} · ≥50 unid</span>`;
+
+  const agg = agregarSellout('PRODUTO', per) || {};
   const linhas = Object.keys(agg).map(p => {
     const a = agg[p].atual, cp = agg[p].comp;
     const dPct = cp?((a-cp)/cp*100):(a>0?100:0);
@@ -5510,10 +5559,24 @@ function renderCrescimento(data, per){
 
   if(fonteCrescimento === 'SO' && rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
     document.getElementById('cresceAvisoSO').style.display = 'inline-block';
-    document.getElementById('cresceAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${MESES_NOME[selloutUltimoPeriodo.mes-1]}/${selloutUltimoPeriodo.ano} · M-2 · ≥50 unid</span>`;
 
-    const aggC = agregarSellout('GRUPO_PAINEL') || {};
-    const aggP = agregarSellout('PRODUTO') || {};
+    // Label do período SO seguindo o filtro do dashboard
+    const ultMesSOc = selloutUltimoPeriodo;
+    function temNoSOc(p){
+      return (p.ano < ultMesSOc.ano) || (p.ano === ultMesSOc.ano && p.mes <= ultMesSOc.mes);
+    }
+    let perAtualSOc = per.periodoAtual.filter(temNoSOc);
+    if(perAtualSOc.length === 0){
+      perAtualSOc = [{ano: ultMesSOc.ano, mes: ultMesSOc.mes}];
+    }
+    const labelPerSOc = perAtualSOc.length === 1
+      ? `${MESES_NOME[perAtualSOc[0].mes-1]}/${perAtualSOc[0].ano}`
+      : `${MESES_NOME[perAtualSOc[0].mes-1]}/${perAtualSOc[0].ano} a ${MESES_NOME[perAtualSOc[perAtualSOc.length-1].mes-1]}/${perAtualSOc[perAtualSOc.length-1].ano}`;
+    const avisoM2c = perAtualSOc.length < per.periodoAtual.length ? ' ⚠️ M-2' : '';
+    document.getElementById('cresceAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelPerSOc}${avisoM2c} · ≥50 unid</span>`;
+
+    const aggC = agregarSellout('GRUPO_PAINEL', per) || {};
+    const aggP = agregarSellout('PRODUTO', per) || {};
     // Filtro de relevância SO: 50 unidades mínimo no comp (filtra ruído estatístico)
     const THRESHOLD_UNID_SO = 50;
     const lC = Object.keys(aggC).map(k => ({nome:k, atual:aggC[k].atual, brlAtual:aggC[k].brlAtual, unidComp:aggC[k].unidComp||0, dPct:aggC[k].comp?((aggC[k].atual-aggC[k].comp)/aggC[k].comp*100):(aggC[k].atual>0?100:0)}))
@@ -5597,10 +5660,24 @@ function renderQueda(data, per){
 
   if(fonteQueda === 'SO' && rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
     document.getElementById('quedaAvisoSO').style.display = 'inline-block';
-    document.getElementById('quedaAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${MESES_NOME[selloutUltimoPeriodo.mes-1]}/${selloutUltimoPeriodo.ano} · M-2 · ≥50 unid</span>`;
 
-    const aggC = agregarSellout('GRUPO_PAINEL') || {};
-    const aggP = agregarSellout('PRODUTO') || {};
+    // Calcular label do período SO (alinhado ao filtro do dashboard, com fallback M-2)
+    const ultMesSOq = selloutUltimoPeriodo;
+    function temNoSOq(p){
+      return (p.ano < ultMesSOq.ano) || (p.ano === ultMesSOq.ano && p.mes <= ultMesSOq.mes);
+    }
+    let perAtualSOq = per.periodoAtual.filter(temNoSOq);
+    if(perAtualSOq.length === 0){
+      perAtualSOq = [{ano: ultMesSOq.ano, mes: ultMesSOq.mes}];
+    }
+    const labelPerSOq = perAtualSOq.length === 1
+      ? `${MESES_NOME[perAtualSOq[0].mes-1]}/${perAtualSOq[0].ano}`
+      : `${MESES_NOME[perAtualSOq[0].mes-1]}/${perAtualSOq[0].ano} a ${MESES_NOME[perAtualSOq[perAtualSOq.length-1].mes-1]}/${perAtualSOq[perAtualSOq.length-1].ano}`;
+    const avisoM2 = perAtualSOq.length < per.periodoAtual.length ? ' ⚠️ M-2' : '';
+    document.getElementById('quedaAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelPerSOq}${avisoM2} · ≥50 unid</span>`;
+
+    const aggC = agregarSellout('GRUPO_PAINEL', per) || {};
+    const aggP = agregarSellout('PRODUTO', per) || {};
     // Filtro de relevância SO: 50 unidades mínimo no comp (filtra ruído estatístico tipo 1→0)
     const THRESHOLD_UNID_SO = 50;
     const lC = Object.keys(aggC).map(k => ({nome:k, atual:aggC[k].atual, comp:aggC[k].comp, brlAtual:aggC[k].brlAtual, unidComp:aggC[k].unidComp||0, dAbs:aggC[k].atual-aggC[k].comp, dPct:aggC[k].comp?((aggC[k].atual-aggC[k].comp)/aggC[k].comp*100):0}))
@@ -5648,8 +5725,8 @@ function renderDiagnosticoCresce(data, per){
   // Para SO, gera diagnóstico simplificado (sell-out não tem cliente x produto cruzado refinado)
   if(fonteCrescimento === 'SO' && rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
     const conteudo = document.getElementById('diagnosticoCresceContent');
-    const aggC = agregarSellout('GRUPO_PAINEL') || {};
-    const aggP = agregarSellout('PRODUTO') || {};
+    const aggC = agregarSellout('GRUPO_PAINEL', per) || {};
+    const aggP = agregarSellout('PRODUTO', per) || {};
 
     // Mapear com dAbs (variação absoluta) - filtro de 50 unid no comp
     const cresceClientes = Object.keys(aggC).map(k => ({nome:k, atual:aggC[k].atual, comp:aggC[k].comp, unidComp:aggC[k].unidComp||0, dAbs:aggC[k].atual-aggC[k].comp, dPct:aggC[k].comp?((aggC[k].atual-aggC[k].comp)/aggC[k].comp*100):0}))
@@ -5694,8 +5771,8 @@ function renderDiagnosticoCresce(data, per){
 function renderDiagnosticoQueda(data, per){
   if(fonteQueda === 'SO' && rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
     const conteudo = document.getElementById('diagnosticoQuedaContent');
-    const aggC = agregarSellout('GRUPO_PAINEL') || {};
-    const aggP = agregarSellout('PRODUTO') || {};
+    const aggC = agregarSellout('GRUPO_PAINEL', per) || {};
+    const aggP = agregarSellout('PRODUTO', per) || {};
 
     // Mapear com dAbs - filtro 50 unid no comp pra evitar 1→0 = -100% irrelevante
     const quedaClientes = Object.keys(aggC).map(k => ({nome:k, atual:aggC[k].atual, comp:aggC[k].comp, unidComp:aggC[k].unidComp||0, dAbs:aggC[k].atual-aggC[k].comp, dPct:aggC[k].comp?((aggC[k].atual-aggC[k].comp)/aggC[k].comp*100):0}))
@@ -7117,6 +7194,7 @@ async function exportPPTX(){
       const franquiasSetC = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
       const tipoSetC = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
       const produtoSetC = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
+      const clienteSetC = clientesSelecionados.length ? new Set(clientesSelecionados) : null;
 
       const periodoAtualSetSI_C = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
       const periodoCompSetSI_C = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
@@ -7142,6 +7220,7 @@ async function exportPPTX(){
         if(franquiasSetC && !franquiasSetC.has(String(r[COLS.FRANQUIA]))) continue;
         if(tipoSetC && !tipoSetC.has(r[COLS.TIPO_CLIENTE])) continue;
         if(produtoSetC && !produtoSetC.has(r[COLS.PRODUTO])) continue;
+        if(clienteSetC && !clienteSetC.has(r[COLS.CLIENTE])) continue;
         const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
         const isAtual = periodoAtualSetSI_C.has(k);
         const isComp = periodoCompSetSI_C.has(k);
@@ -7781,7 +7860,7 @@ async function exportPPTX(){
     ]];
 
     if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
-      const aggSO = agregarSellout('GRUPO_PAINEL') || {};
+      const aggSO = agregarSellout('GRUPO_PAINEL', per) || {};
       const topSO = Object.keys(aggSO).map(k => ({nome:k, atual:aggSO[k].atual, dPct:aggSO[k].comp?((aggSO[k].atual-aggSO[k].comp)/aggSO[k].comp*100):0}))
         .filter(r => r.atual > 0).sort((a,b)=>b.atual-a.atual).slice(0,15);
       topSO.forEach((r,i) => {
@@ -7845,7 +7924,7 @@ async function exportPPTX(){
     ]];
 
     if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
-      const aggSOP = agregarSellout('PRODUTO') || {};
+      const aggSOP = agregarSellout('PRODUTO', per) || {};
       const topSOP = Object.keys(aggSOP).map(k => ({nome:k, atual:aggSOP[k].atual, dPct:aggSOP[k].comp?((aggSOP[k].atual-aggSOP[k].comp)/aggSOP[k].comp*100):0}))
         .filter(r => r.atual > 0).sort((a,b)=>b.atual-a.atual).slice(0,15);
       topSOP.forEach((r,i) => {
