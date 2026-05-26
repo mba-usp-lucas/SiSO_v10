@@ -647,10 +647,13 @@
     <button type="button" class="nav-link" onclick="scrollToSection('resumoCard')">📋 Resumo Redes</button>
     <button type="button" class="nav-link" onclick="scrollToSection('comparativoCard')">🔄 SI × SO</button>
     <button type="button" class="nav-link" onclick="scrollToSection('insightsCard')">💡 Insights</button>
+    <button type="button" class="nav-link" onclick="scrollToSection('franquiaCard')">📊 Franquia</button>
+    <button type="button" class="nav-link" onclick="scrollToSection('tendenciaSystaneCard')">📈 Systane</button>
     <button type="button" class="nav-link" onclick="scrollToSection('ufCard')">🗺️ Canal</button>
     <button type="button" class="nav-link" onclick="scrollToSection('decompCard')">📊 Decomp.</button>
     <button type="button" class="nav-link" onclick="scrollToSection('planoAcaoCard')">🎯 Ações</button>
     <button type="button" class="nav-link" onclick="scrollToSection('chartYoYCard')">📈 Evolução</button>
+    <button type="button" class="nav-link" onclick="scrollToSection('chartDifferenceCard')">🔀 SI vs SO</button>
     <button type="button" class="nav-link" onclick="scrollToSection('targetsCard')">🎯 Targets</button>
     <button type="button" class="nav-link" onclick="scrollToSection('tab-clientes')">🏢 Top 15</button>
     <button type="button" class="nav-back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Voltar ao topo">↑ Topo</button>
@@ -704,8 +707,28 @@
   </div>
 
   <div class="insights collapsible" id="insightsCard">
-    <h3 onclick="toggleSection('insightsCard')">💡 Insights Automáticos <span class="toggle-icon">▼</span></h3>
-    <div class="collapsible-body"><ul id="insightsList"></ul></div>
+    <h3 onclick="toggleSection('insightsCard')">💡 Insight Rápido <span class="toggle-icon">▼</span></h3>
+    <div class="collapsible-body"><div id="insightsList"></div></div>
+  </div>
+
+  <!-- ============ CARD ANÁLISE POR FRANQUIA ============ -->
+  <div class="card collapsible" id="franquiaCard">
+    <h3 onclick="toggleSection('franquiaCard')">📊 Análise por Franquia <span style="font-size:11px;font-weight:300;color:var(--ink-muted);margin-left:auto" id="franquiaAviso"></span> <span class="toggle-icon">▼</span></h3>
+    <div class="collapsible-body">
+      <div id="franquiaResumo" style="margin-bottom:14px"></div>
+      <div id="franquiaBarras"></div>
+    </div>
+  </div>
+
+  <!-- ============ CARD TENDÊNCIA POR SYSTANE (últimos 12 meses) ============ -->
+  <div class="card collapsible" id="tendenciaSystaneCard" style="display:none">
+    <h3 onclick="toggleSection('tendenciaSystaneCard')">📈 Tendência por Systane · Últimos 12 meses <span style="font-size:11px;font-weight:300;color:var(--ink-muted);margin-left:auto" id="tendenciaSystaneAviso"></span> <span class="toggle-icon">▼</span></h3>
+    <div class="collapsible-body">
+      <div id="tendenciaSystaneInfo" style="font-size:11px;color:var(--ink-muted);margin-bottom:12px;padding:8px 12px;background:#F0F9FF;border-radius:6px;border-left:3px solid #0EA5E9">
+        ℹ️ <b>Atenção:</b> este card mostra os últimos 12 meses disponíveis (independente do filtro de período). Aplica apenas filtros de <b>cliente</b> e <b>franquia</b>.
+      </div>
+      <div id="tendenciaSystaneGrid"></div>
+    </div>
   </div>
 
   <!-- CARD DE DIAGNÓSTICO POR UF -->
@@ -732,9 +755,19 @@
     <h3 onclick="toggleSection('planoAcaoCard')">🎯 Plano de Ação · Prioridades baseadas em tendência, gap e cruzamento SI×SO <span style="font-size:11px;font-weight:300;color:var(--ink-muted);margin-left:auto" id="planoAcaoAviso"></span> <span class="toggle-icon">▼</span></h3>
     <div class="collapsible-body">
       <div id="planoAcaoResumo" style="margin-bottom:16px"></div>
-      <div id="planoAcaoCriticos"></div>
-      <div id="planoAcaoAtencao" style="margin-top:14px"></div>
-      <div id="planoAcaoOportunidades" style="margin-top:14px"></div>
+      <!-- Toggle entre "Por Franquia" e "Por Categoria" -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
+        <span style="font-size:11px;font-weight:600;color:var(--ink-muted);text-transform:uppercase">Agrupar por:</span>
+        <button type="button" id="btnPlanoFranquia" class="metric-btn active" onclick="togglePlanoAcaoView('franquia')" style="font-size:11px">🏷️ Franquia</button>
+        <button type="button" id="btnPlanoCategoria" class="metric-btn" onclick="togglePlanoAcaoView('categoria')" style="font-size:11px">📊 Categoria</button>
+      </div>
+      <!-- Conteúdo (por franquia ou por categoria conforme toggle) -->
+      <div id="planoAcaoPorFranquia"></div>
+      <div id="planoAcaoPorCategoria" style="display:none">
+        <div id="planoAcaoCriticos"></div>
+        <div id="planoAcaoAtencao" style="margin-top:14px"></div>
+        <div id="planoAcaoOportunidades" style="margin-top:14px"></div>
+      </div>
     </div>
   </div>
 
@@ -772,11 +805,22 @@
     <div class="collapsible-body"><div class="chart-container"><canvas id="chartSellout"></canvas></div></div>
   </div>
 
-  <!-- Mix Franquia Atual vs Mix Franquia Anterior (2 donuts lado a lado) -->
-  <div class="card collapsible" id="chartFranquiaCard">
-    <h3 onclick="toggleSection('chartFranquiaCard')">🥧 Mix por Franquia · Atual vs Comparado <span class="metric-label" id="metricLabel3"></span> <span class="toggle-icon">▼</span></h3>
+  <!-- ============ CARD SI vs SO DIFFERENCE (Últimos 12 meses) ============ -->
+  <div class="card collapsible" id="chartDifferenceCard" style="display:none">
+    <h3 onclick="toggleSection('chartDifferenceCard')">🔀 Sell-in vs Sell-out · Diferença · Últimos 12 meses <span id="chartDifferenceAviso" style="font-size:11px;font-weight:300;color:var(--ink-muted);margin-left:auto"></span> <span class="toggle-icon">▼</span></h3>
     <div class="collapsible-body">
-      <div class="grid-2">
+      <div style="font-size:11px;color:var(--ink-muted);margin-bottom:10px;padding:8px 12px;background:#FEF3C7;border-radius:6px;border-left:3px solid #D97706">
+        ℹ️ Mostra os últimos 12 meses (ignora filtro de período). Aplica <b>cliente</b> e <b>produto</b>. Área sombreada = gap entre SI e SO (descompasso entre vendas ao canal e demanda real).
+      </div>
+      <div class="chart-container" style="height:380px"><canvas id="chartDifference"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Mix Franquia Atual vs Mix Franquia Anterior + Movers (3 gráficos lado a lado) -->
+  <div class="card collapsible" id="chartFranquiaCard">
+    <h3 onclick="toggleSection('chartFranquiaCard')">🥧 Mix por Franquia · Atual vs Comparado + Movers <span class="metric-label" id="metricLabel3"></span> <span class="toggle-icon">▼</span></h3>
+    <div class="collapsible-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:14px">
         <div>
           <div style="text-align:center;font-weight:700;color:var(--alcon-blue);margin-bottom:6px;font-size:13px" id="mixFrAtualLabel">Período Atual</div>
           <div class="chart-container" style="height:300px"><canvas id="chartFranquia"></canvas></div>
@@ -784,6 +828,10 @@
         <div>
           <div style="text-align:center;font-weight:700;color:var(--alcon-teal);margin-bottom:6px;font-size:13px" id="mixFrAntLabel">Período Comparado</div>
           <div class="chart-container" style="height:300px"><canvas id="chartFranquiaAnt"></canvas></div>
+        </div>
+        <div>
+          <div style="text-align:center;font-weight:700;color:#92400E;margin-bottom:6px;font-size:13px">🚀 Movers · Onde estava → onde está</div>
+          <div class="chart-container" style="height:300px"><canvas id="chartFranquiaMovers"></canvas></div>
         </div>
       </div>
     </div>
@@ -2231,12 +2279,15 @@ function renderizarTudo(){
   renderUF(per);
   renderDecomposicao(base, per);  // antes de Insights pra alimentar window.__decompResultado
   renderPlanoAcao(base, per);     // antes de Insights pra alimentar window.__planoAcaoResultado
+  renderFranquia(base, per);      // antes de Insights pra alimentar window.__franquiaResultado
+  renderTendenciaSystane();        // Tendência Systane (últimos 12 meses, ignora filtro de período)
   renderInsights(base, per);       // depois pra usar resultados acima
   renderBenchmark(per);
   renderTargets(base, per);
   renderTargetsFinanceiros(base, per);
   renderChartYoY(base, per);
   renderChartSellout(per);
+  renderChartDifference();   // SI vs SO últimos 12 meses (ignora período)
   renderChartFranquia(base, per);
   renderChartFranquiaComp(base, per);
   renderTopClientes(base, per);
@@ -3165,8 +3216,130 @@ function renderPlanoAcao(data, per){
   atencaoDiv.innerHTML = renderGrupoAcoes('🟠 Atenção', atencao, '#F59E0B', '#FFFBEB', '#92400E');
   oportDiv.innerHTML = renderGrupoAcoes('🟢 Oportunidade', oportunidades, '#10B981', '#ECFDF5', '#065F46');
 
+  // Renderizar agrupado por franquia (default)
+  const todasAcoesTop = [...criticos, ...atencao, ...oportunidades];
+  renderPlanoPorFranquia(todasAcoesTop);
+
   // Salvar pra uso no PPT
   window.__planoAcaoResultado = {criticos, atencao, oportunidades, acoes};
+}
+
+// ============================================================
+// renderPlanoPorFranquia - agrupa ações por franquia em seções colapsáveis
+// ============================================================
+function renderPlanoPorFranquia(todasAcoes){
+  const container = document.getElementById('planoAcaoPorFranquia');
+  if(!container) return;
+
+  // Agrupar por franquia
+  const porFranquia = {};
+  for(const a of todasAcoes){
+    const fr = a.franquia || '—';
+    if(!porFranquia[fr]) porFranquia[fr] = {criticos:[], atencao:[], oportunidades:[]};
+    if(a.categoria === 'critico') porFranquia[fr].criticos.push(a);
+    else if(a.categoria === 'atencao') porFranquia[fr].atencao.push(a);
+    else if(a.categoria === 'oportunidade') porFranquia[fr].oportunidades.push(a);
+  }
+
+  // Ordenar franquias por total de itens (mais ações primeiro)
+  const franquiasOrd = Object.entries(porFranquia)
+    .map(([fr, g]) => ({fr, total: g.criticos.length + g.atencao.length + g.oportunidades.length, grupos: g}))
+    .sort((a,b) => b.total - a.total);
+
+  if(franquiasOrd.length === 0){
+    container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--ink-muted);font-style:italic">Nenhuma ação identificada para o período/filtros atuais.</div>`;
+    return;
+  }
+
+  let html = '';
+  franquiasOrd.forEach((f, idx) => {
+    const id = `franquia-acao-${idx}`;
+    const totalCrit = f.grupos.criticos.length;
+    const totalAten = f.grupos.atencao.length;
+    const totalOpor = f.grupos.oportunidades.length;
+    // Calcular impacto consolidado da franquia
+    const todasAcoesFr = [...f.grupos.criticos, ...f.grupos.atencao, ...f.grupos.oportunidades];
+    const impactoNeg = todasAcoesFr.filter(a => a.impactoSinal < 0).reduce((s,a) => s + Math.abs(a.impactoSinal), 0);
+    const impactoPos = todasAcoesFr.filter(a => a.impactoSinal >= 0).reduce((s,a) => s + a.impactoSinal, 0);
+    // Cor do header baseado na prioridade
+    const corHeader = totalCrit > 0 ? '#DC2626' : totalAten > 0 ? '#F59E0B' : '#10B981';
+    const fundoHeader = totalCrit > 0 ? '#FEF2F2' : totalAten > 0 ? '#FFFBEB' : '#ECFDF5';
+    const corTextoHeader = totalCrit > 0 ? '#7F1D1D' : totalAten > 0 ? '#92400E' : '#065F46';
+
+    // Badges
+    const badges = [];
+    if(totalCrit > 0) badges.push(`<span style="background:#DC2626;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px">🔴 ${totalCrit}</span>`);
+    if(totalAten > 0) badges.push(`<span style="background:#F59E0B;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px">🟠 ${totalAten}</span>`);
+    if(totalOpor > 0) badges.push(`<span style="background:#10B981;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px">🚀 ${totalOpor}</span>`);
+
+    const impactoTxt = [];
+    if(impactoNeg > 0) impactoTxt.push(`<span style="color:#DC2626;font-weight:600">↓ ${fmt(impactoNeg)}</span>`);
+    if(impactoPos > 0) impactoTxt.push(`<span style="color:#059669;font-weight:600">↑ ${fmt(impactoPos)}</span>`);
+
+    // Default: primeira franquia aberta, outras fechadas
+    const isOpen = idx === 0;
+    html += `
+      <div style="background:white;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:10px;overflow:hidden">
+        <div onclick="togglePlanoFranquia('${id}')" style="cursor:pointer;padding:12px 14px;background:${fundoHeader};border-left:4px solid ${corHeader};display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-size:14px;font-weight:700;color:${corTextoHeader}">${f.fr}</span>
+            <span style="font-size:11px;color:var(--ink-muted)">(${f.total} ${f.total === 1 ? 'ação' : 'ações'})</span>
+            ${badges.join(' ')}
+            ${impactoTxt.length > 0 ? `<span style="font-size:11px;color:var(--ink-muted)">·</span>${impactoTxt.join(' · ')}` : ''}
+          </div>
+          <span id="${id}-arrow" style="font-size:14px;color:${corTextoHeader};transition:transform 0.2s;transform:rotate(${isOpen ? '180' : '0'}deg)">▼</span>
+        </div>
+        <div id="${id}" style="padding:${isOpen ? '14px' : '0 14px'};display:${isOpen ? 'block' : 'none'}">
+    `;
+    // Críticos primeiro
+    if(f.grupos.criticos.length > 0){
+      html += renderGrupoAcoes('🔴 Crítico', f.grupos.criticos, '#DC2626', '#FEF2F2', '#7F1D1D');
+    }
+    if(f.grupos.atencao.length > 0){
+      html += renderGrupoAcoes('🟠 Atenção', f.grupos.atencao, '#F59E0B', '#FFFBEB', '#92400E');
+    }
+    if(f.grupos.oportunidades.length > 0){
+      html += renderGrupoAcoes('🟢 Oportunidade', f.grupos.oportunidades, '#10B981', '#ECFDF5', '#065F46');
+    }
+    html += `</div></div>`;
+  });
+  container.innerHTML = html;
+}
+
+// Toggle expansão/fechamento de uma franquia no plano de ação
+function togglePlanoFranquia(id){
+  const div = document.getElementById(id);
+  const arrow = document.getElementById(id + '-arrow');
+  if(!div) return;
+  const isOpen = div.style.display !== 'none';
+  if(isOpen){
+    div.style.display = 'none';
+    div.style.padding = '0 14px';
+    if(arrow) arrow.style.transform = 'rotate(0deg)';
+  } else {
+    div.style.display = 'block';
+    div.style.padding = '14px';
+    if(arrow) arrow.style.transform = 'rotate(180deg)';
+  }
+}
+
+// Toggle entre visão "Por Franquia" e "Por Categoria"
+function togglePlanoAcaoView(modo){
+  const divFr = document.getElementById('planoAcaoPorFranquia');
+  const divCat = document.getElementById('planoAcaoPorCategoria');
+  const btnFr = document.getElementById('btnPlanoFranquia');
+  const btnCat = document.getElementById('btnPlanoCategoria');
+  if(modo === 'franquia'){
+    if(divFr) divFr.style.display = 'block';
+    if(divCat) divCat.style.display = 'none';
+    if(btnFr) btnFr.classList.add('active');
+    if(btnCat) btnCat.classList.remove('active');
+  } else {
+    if(divFr) divFr.style.display = 'none';
+    if(divCat) divCat.style.display = 'block';
+    if(btnFr) btnFr.classList.remove('active');
+    if(btnCat) btnCat.classList.add('active');
+  }
 }
 
 // Helper: gera texto de diagnóstico do cliente
@@ -3191,7 +3364,7 @@ function renderGrupoAcoes(titulo, lista, corPrimaria, corFundo, corTexto){
 
   let html = `<div style="margin-top:14px;font-size:13px;font-weight:700;color:${corTexto};margin-bottom:8px">${titulo} <span style="font-weight:400;color:var(--ink-muted)">(${lista.length})</span></div>`;
   lista.forEach((a, idx) => {
-    const tipoIcon = a.tipo === 'cliente' ? '🏥' : '💊';
+    const tipoIcon = a.tipo === 'cliente' ? '🏥' : '🏪';
     const tipoLabel = a.tipo === 'cliente' ? 'Cliente' : 'Produto';
     const sinalImpacto = a.impactoSinal >= 0 ? '+' : '-';
     const corImpacto = a.impactoSinal >= 0 ? '#059669' : '#DC2626';
@@ -4095,6 +4268,408 @@ function renderKPIs(data, per){
 }
 
 
+// ============================================================
+// renderFranquia - Card "Análise por Franquia" (barras horizontais)
+// Mostra variação YoY de cada franquia com barras, valor e %.
+// Resultado armazenado em window.__franquiaResultado para uso
+// no card Insight Rápido (visão macro × por franquia).
+// ============================================================
+// ============================================================
+// renderTendenciaSystane - Card "Tendência por Systane"
+// Mini-gráficos de linha (sparklines) para cada produto Systane.
+// Mostra últimos 12 meses (independente do filtro de período).
+// Aplica filtros de: CLIENTE e FRANQUIA (não aplica período nem produto).
+// ============================================================
+function renderTendenciaSystane(){
+  const card = document.getElementById('tendenciaSystaneCard');
+  if(!card || !rawData || rawData.length === 0) return;
+
+  // Identificar produtos Systane
+  const todosProdutos = [...new Set(rawData.map(r => r[COLS.PRODUTO]).filter(p => p))];
+  const produtosSystane = todosProdutos.filter(p => String(p).toUpperCase().includes('SYSTANE'));
+
+  if(produtosSystane.length === 0){
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+
+  // Aplicar filtros (cliente e franquia)
+  const franquiasSet = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
+  const tipoSet = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
+  const clienteSet = clientesSelecionados.length ? new Set(clientesSelecionados) : null;
+  const fontesSet = fontesSelecionadas.length ? new Set(fontesSelecionadas) : null;
+
+  // Identificar últimos 12 meses disponíveis
+  const periodosDisponiveis = new Set();
+  for(const r of rawData){
+    const a = +r[COLS.ANO];
+    const m = +r[COLS.MES_NUM];
+    if(a && m) periodosDisponiveis.add(`${a}-${String(m).padStart(2,'0')}`);
+  }
+  const periodosOrd = [...periodosDisponiveis].sort();
+  const ultimos12 = periodosOrd.slice(-12);
+  const periodosLabel = ultimos12.length > 0
+    ? `${MESES_NOME[+ultimos12[0].split('-')[1]-1]}/${ultimos12[0].split('-')[0]} a ${MESES_NOME[+ultimos12[ultimos12.length-1].split('-')[1]-1]}/${ultimos12[ultimos12.length-1].split('-')[0]}`
+    : '';
+
+  // Atualizar aviso do card
+  const avisoEl = document.getElementById('tendenciaSystaneAviso');
+  if(avisoEl) avisoEl.textContent = `· ${periodosLabel} · ${METRICAS[metricaAtual].label}`;
+
+  // Agregar por produto + mês
+  const aggProd = {}; // {produto: [v0,v1,...,v11]}
+  for(const p of produtosSystane) aggProd[p] = new Array(12).fill(0);
+  const idxMap = {};
+  ultimos12.forEach((k, i) => { idxMap[k] = i; });
+
+  for(const r of rawData){
+    const prod = r[COLS.PRODUTO];
+    if(!produtosSystane.includes(prod)) continue;
+    if(fontesSet && !fontesSet.has(String(r[COLS.FONTE]))) continue;
+    if(franquiasSet && !franquiasSet.has(String(r[COLS.FRANQUIA]))) continue;
+    if(tipoSet && !tipoSet.has(r[COLS.TIPO_CLIENTE])) continue;
+    if(clienteSet && !clienteSet.has(r[COLS.CLIENTE])) continue;
+    const k = `${r[COLS.ANO]}-${String(r[COLS.MES_NUM]).padStart(2,'0')}`;
+    if(!(k in idxMap)) continue;
+    aggProd[prod][idxMap[k]] += getValor(r);
+  }
+
+  // Filtrar produtos sem dado relevante
+  const produtosComDado = produtosSystane.filter(p => aggProd[p].some(v => v > 0));
+  if(produtosComDado.length === 0){
+    document.getElementById('tendenciaSystaneGrid').innerHTML = `<div style="text-align:center;padding:24px;color:var(--ink-muted);font-style:italic">Sem dados de Systane para os filtros aplicados.</div>`;
+    return;
+  }
+
+  // Calcular tendência (YoY = comparar últimos 12m com 12m anteriores)
+  // Para cálculo YoY precisa dos 24 últimos meses
+  const ultimos24 = periodosOrd.slice(-24);
+  const aggProd24 = {};
+  for(const p of produtosComDado) aggProd24[p] = new Array(24).fill(0);
+  const idxMap24 = {};
+  ultimos24.forEach((k, i) => { idxMap24[k] = i; });
+  for(const r of rawData){
+    const prod = r[COLS.PRODUTO];
+    if(!produtosComDado.includes(prod)) continue;
+    if(fontesSet && !fontesSet.has(String(r[COLS.FONTE]))) continue;
+    if(franquiasSet && !franquiasSet.has(String(r[COLS.FRANQUIA]))) continue;
+    if(tipoSet && !tipoSet.has(r[COLS.TIPO_CLIENTE])) continue;
+    if(clienteSet && !clienteSet.has(r[COLS.CLIENTE])) continue;
+    const k = `${r[COLS.ANO]}-${String(r[COLS.MES_NUM]).padStart(2,'0')}`;
+    if(!(k in idxMap24)) continue;
+    aggProd24[prod][idxMap24[k]] += getValor(r);
+  }
+
+  // Renderizar grid com sparklines
+  const grid = document.getElementById('tendenciaSystaneGrid');
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">';
+
+  produtosComDado.forEach((prod, idx) => {
+    const dados12 = aggProd[prod];
+    const dados24 = aggProd24[prod];
+    const total12 = dados12.reduce((s,v) => s+v, 0);
+    // YoY: soma dos últimos 12 vs 12 anteriores
+    const ultimos12Soma = dados24.slice(-12).reduce((s,v) => s+v, 0);
+    const anteriores12Soma = dados24.length >= 24 ? dados24.slice(0, 12).reduce((s,v) => s+v, 0) : 0;
+    const yoyPct = anteriores12Soma > 0 ? ((ultimos12Soma - anteriores12Soma) / anteriores12Soma * 100) : 0;
+
+    const corVar = yoyPct >= 0 ? '#059669' : '#DC2626';
+    const seta = yoyPct >= 0 ? '▲' : '▼';
+    const cores = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
+    const cor = cores[idx % cores.length];
+
+    const canvasId = `sparkSystane_${idx}`;
+    html += `
+      <div style="background:white;border:1px solid #E5E7EB;border-radius:8px;padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+          <span style="font-size:13px;font-weight:700;color:#1E3A5F">${prod}</span>
+          <span style="font-size:14px;font-weight:700;color:${corVar}">${seta} ${yoyPct >= 0 ? '+' : ''}${yoyPct.toFixed(1)}%</span>
+        </div>
+        <div style="font-size:11px;color:var(--ink-muted);margin-bottom:6px">
+          Total 12m: <b>${fmt(total12)}</b> · <span style="color:${corVar}">vs 12m anteriores</span>
+        </div>
+        <div style="height:80px;position:relative">
+          <canvas id="${canvasId}"></canvas>
+        </div>
+      </div>
+    `;
+  });
+  html += '</div>';
+  grid.innerHTML = html;
+
+  // Renderizar sparklines após DOM atualizar
+  setTimeout(() => {
+    produtosComDado.forEach((prod, idx) => {
+      const canvas = document.getElementById(`sparkSystane_${idx}`);
+      if(!canvas) return;
+      const dados12 = aggProd[prod];
+      const cores = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
+      const cor = cores[idx % cores.length];
+
+      // Destruir chart existente se houver
+      if(charts['spark_systane_' + idx]) charts['spark_systane_' + idx].destroy();
+
+      // Labels: pegar últimos 12 meses
+      const labels = ultimos12.map(k => {
+        const m = +k.split('-')[1];
+        return MESES_NOME[m-1];
+      });
+
+      charts['spark_systane_' + idx] = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: dados12,
+            borderColor: cor,
+            backgroundColor: cor + '22',
+            borderWidth: 2.5,
+            tension: 0.35,
+            fill: true,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointBackgroundColor: cor
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {display: false},
+            tooltip: {
+              callbacks: { label: c => fmt(c.parsed.y) }
+            },
+            datalabels: {display: false}
+          },
+          scales: {
+            x: { ticks: { font: {size: 9}, maxRotation: 0, autoSkip: true, maxTicksLimit: 4 }, grid: {display: false} },
+            y: { display: false, beginAtZero: true }
+          },
+          elements: { line: { borderJoinStyle: 'round' } }
+        }
+      });
+    });
+  }, 50);
+}
+
+function renderFranquia(data, per){
+  const card = document.getElementById('franquiaCard');
+  if(!card) return;
+  card.style.display = 'block';
+
+  const periodoAtualSet = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
+  const periodoCompSet = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
+
+  // Agregar SI por franquia
+  const aggSI = {};
+  for(const r of data){
+    const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+    const isAtual = periodoAtualSet.has(k);
+    const isComp = periodoCompSet.has(k);
+    if(!isAtual && !isComp) continue;
+    const fr = r[COLS.FRANQUIA] || '—';
+    if(!aggSI[fr]) aggSI[fr] = {atual:0, comp:0, unidAtual:0, unidComp:0, brlAtual:0, brlComp:0};
+    const v = getValor(r);
+    const u = +r[COLS.VALOR_UNID] || 0;
+    const brl = +r[COLS.VALOR_BRL] || 0;
+    if(isAtual){ aggSI[fr].atual += v; aggSI[fr].unidAtual += u; aggSI[fr].brlAtual += brl; }
+    if(isComp){ aggSI[fr].comp += v; aggSI[fr].unidComp += u; aggSI[fr].brlComp += brl; }
+  }
+
+  // Agregar SO por franquia (se disponível)
+  const aggSO = {};
+  if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
+    const franquiasSet = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
+    const tipoSet = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
+    const produtoSet = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
+    const produtoSetNorm = produtoSet ? construirSetProdutosNorm(produtoSet) : null;
+
+    // Período SO (cortado M-2)
+    const ultMesSO = selloutUltimoPeriodo;
+    function temNoSO(p){
+      return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
+    }
+    let perSOAtual = per.periodoAtual.filter(temNoSO);
+    if(perSOAtual.length === 0) perSOAtual = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
+    const perSOComp = perSOAtual.map(p => ({ano: p.ano-1, mes: p.mes}));
+    const setAtualSO = new Set(perSOAtual.map(p => `${p.ano}-${p.mes}`));
+    const setCompSO = new Set(perSOComp.map(p => `${p.ano}-${p.mes}`));
+
+    for(const r of rawDataSellout){
+      if(!selloutCanalOk(r)) continue;
+      if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
+      if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
+      if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
+      if(produtoSetNorm && !produtoBateFiltro(r.PRODUTO, produtoSetNorm)) continue;
+      const k = `${r.ANO}-${r.MES}`;
+      const isAtual = setAtualSO.has(k);
+      const isComp = setCompSO.has(k);
+      if(!isAtual && !isComp) continue;
+      const fr = r.FRANQUIA || '—';
+      if(!aggSO[fr]) aggSO[fr] = {atual:0, comp:0};
+      const v = getValorSO(r);
+      if(isAtual) aggSO[fr].atual += v;
+      if(isComp) aggSO[fr].comp += v;
+    }
+  }
+
+  // Combinar SI + SO e calcular variações
+  const todasFranquias = new Set([...Object.keys(aggSI), ...Object.keys(aggSO)]);
+  const linhas = [];
+  for(const fr of todasFranquias){
+    const si = aggSI[fr] || {atual:0, comp:0, unidAtual:0, unidComp:0, brlAtual:0, brlComp:0};
+    const so = aggSO[fr] || {atual:0, comp:0};
+    const siVar = si.comp ? ((si.atual - si.comp) / si.comp * 100) : (si.atual > 0 ? 100 : 0);
+    const soVar = so.comp ? ((so.atual - so.comp) / so.comp * 100) : (so.atual > 0 ? 100 : 0);
+    const siUnidVar = si.unidComp ? ((si.unidAtual - si.unidComp) / si.unidComp * 100) : 0;
+    linhas.push({
+      franquia: fr,
+      siAtual: si.atual, siComp: si.comp, siVar, siUnidVar,
+      siBrlAtual: si.brlAtual, siBrlComp: si.brlComp,
+      soAtual: so.atual, soComp: so.comp, soVar,
+      gap: siVar - soVar
+    });
+  }
+  // Ordenar por valor SI atual (maior primeiro)
+  linhas.sort((a,b) => b.siAtual - a.siAtual);
+
+  // Armazenar pra uso no Insight Rápido
+  window.__franquiaResultado = linhas;
+
+  // Aviso de período
+  const mLabel = METRICAS[metricaAtual].label;
+  document.getElementById('franquiaAviso').textContent = `${mLabel} · ${per.labelAtual} vs ${per.labelComp || '—'}`;
+
+  // Resumo executivo: maior crescimento e maior queda
+  const ordenadosPorVar = [...linhas].filter(l => l.siComp > 0).sort((a,b) => b.siVar - a.siVar);
+  const topAlta = ordenadosPorVar[0];
+  const topQueda = ordenadosPorVar[ordenadosPorVar.length - 1];
+  let resumoTxt = '';
+  if(topAlta && topAlta.siVar > 0){
+    resumoTxt += `<span style="color:#059669"><b>📈 ${topAlta.franquia}</b> lidera com <b>+${topAlta.siVar.toFixed(1)}%</b> em SI</span>`;
+  }
+  if(topQueda && topQueda.siVar < 0 && topQueda.franquia !== topAlta?.franquia){
+    if(resumoTxt) resumoTxt += ' · ';
+    resumoTxt += `<span style="color:#DC2626"><b>📉 ${topQueda.franquia}</b> recua <b>${topQueda.siVar.toFixed(1)}%</b></span>`;
+  }
+  document.getElementById('franquiaResumo').innerHTML = resumoTxt
+    ? `<div style="font-size:13px;padding:10px 12px;background:#F9FAFB;border-radius:8px;border-left:3px solid #1E3A5F">${resumoTxt}</div>`
+    : '';
+
+  // ============================================================
+  // EVOLUTION VIEW: Barras de variação YoY (Total + cada franquia)
+  // ============================================================
+  const totalAtual = linhas.reduce((s, l) => s + l.siAtual, 0);
+  const totalComp = linhas.reduce((s, l) => s + l.siComp, 0);
+  const totalVar = totalComp > 0 ? ((totalAtual - totalComp) / totalComp * 100) : 0;
+
+  // Escala visual: ±50% por padrão; ampliar se houver variação extrema
+  const maxAbsVar = Math.max(Math.abs(totalVar), ...linhas.map(l => Math.abs(l.siVar)), 50);
+  const escalaVisual = Math.ceil(maxAbsVar / 10) * 10;
+
+  // Renderiza UMA barra:
+  // - Eixo horizontal vai de -escalaVisual a +escalaVisual
+  // - 50% = centro (variação = 0)
+  // - barras vão da centro pra direita (positivo) ou esquerda (negativo)
+  function barraEvalHTML(label, varPct, valorAtual, isTotal){
+    const pctBarra = Math.min(Math.abs(varPct) / escalaVisual, 1) * 50; // % da metade do container
+    const cor = varPct >= 0 ? '#059669' : '#DC2626';
+    const corFundo = varPct >= 0 ? '#ECFDF5' : '#FEF2F2';
+    const seta = varPct >= 0 ? '▲' : '▼';
+    const labelStyle = isTotal
+      ? 'font-size:14px;font-weight:800;color:#1E3A5F'
+      : 'font-size:13px;font-weight:600;color:var(--ink)';
+    const valStyle = isTotal
+      ? 'font-size:14px;font-weight:800;color:#1E3A5F'
+      : 'font-size:12px;font-weight:600;color:var(--ink-muted)';
+    const altura = isTotal ? '32px' : '24px';
+    const corFundoLinha = isTotal ? '#EFF6FF' : 'transparent';
+    return `
+      <div style="display:grid;grid-template-columns:160px 1fr 130px;gap:12px;align-items:center;padding:6px 8px;background:${corFundoLinha};border-radius:6px;margin-bottom:4px">
+        <div style="${labelStyle}">${isTotal ? '🇧🇷 ' : ''}${label}</div>
+        <div style="position:relative;height:${altura};background:#F9FAFB;border-radius:4px;border:1px solid #E5E7EB">
+          <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:#9CA3AF"></div>
+          ${varPct >= 0
+            ? `<div style="position:absolute;left:50%;top:2px;bottom:2px;width:${pctBarra}%;background:${cor};border-radius:0 4px 4px 0;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;color:white;font-size:11px;font-weight:700">${pctBarra > 12 ? seta + ' +' + varPct.toFixed(1) + '%' : ''}</div>`
+            : `<div style="position:absolute;right:50%;top:2px;bottom:2px;width:${pctBarra}%;background:${cor};border-radius:4px 0 0 4px;display:flex;align-items:center;justify-content:flex-start;padding-left:6px;color:white;font-size:11px;font-weight:700">${pctBarra > 12 ? seta + ' ' + varPct.toFixed(1) + '%' : ''}</div>`
+          }
+          ${pctBarra <= 12 ? `<span style="position:absolute;${varPct>=0?'left:calc(50% + '+pctBarra+'% + 6px)':'right:calc(50% + '+pctBarra+'% + 6px)'};top:50%;transform:translateY(-50%);color:${cor};font-size:11px;font-weight:700;white-space:nowrap">${seta} ${varPct >= 0 ? '+' : ''}${varPct.toFixed(1)}%</span>` : ''}
+        </div>
+        <div style="${valStyle};text-align:right">${fmt(valorAtual)}</div>
+      </div>
+    `;
+  }
+
+  let evalHtml = `
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;font-weight:700;color:#1E3A5F;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">📊 Variação YoY · Total Brasil + Franquias</div>
+      <div style="font-size:10px;color:var(--ink-muted);margin-bottom:6px;display:flex;justify-content:space-between;padding:0 8px">
+        <span>← ${escalaVisual}% queda</span>
+        <span style="font-weight:700">0%</span>
+        <span>+${escalaVisual}% crescimento →</span>
+      </div>
+  `;
+  // Total Brasil em cima
+  evalHtml += barraEvalHTML('TOTAL BRASIL', totalVar, totalAtual, true);
+  // Linhas separadora
+  evalHtml += '<div style="height:1px;background:#E5E7EB;margin:6px 0"></div>';
+  // Franquias
+  for(const l of linhas){
+    evalHtml += barraEvalHTML(l.franquia, l.siVar, l.siAtual, false);
+  }
+  evalHtml += '</div>';
+
+  // Gráfico de barras horizontais (tabela tradicional, mantida)
+  const maxAbs = Math.max(...linhas.map(l => l.siAtual), 1);
+  let html = evalHtml;  // PREPEND evaluation view
+  html += `
+    <div style="font-size:12px;font-weight:700;color:#1E3A5F;margin:18px 0 10px 0;text-transform:uppercase;letter-spacing:0.5px">📋 Detalhamento com SI × SO</div>
+    <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
+      <thead>
+        <tr style="background:#F3F4F6;border-bottom:2px solid #E5E7EB">
+          <th style="text-align:left;padding:8px 10px">Franquia</th>
+          <th style="text-align:left;padding:8px 10px;min-width:200px">Sell-in (${mLabel})</th>
+          <th class="num" style="padding:8px 10px">SI Atual</th>
+          <th class="num" style="padding:8px 10px">SI Δ%</th>
+          <th class="num" style="padding:8px 10px">SO Δ%</th>
+          <th class="num" style="padding:8px 10px">Gap SI-SO</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+  linhas.forEach(l => {
+    const pct = (l.siAtual / maxAbs * 100);
+    const corVar = l.siVar >= 0 ? '#059669' : '#DC2626';
+    const corVarSO = l.soVar >= 0 ? '#059669' : '#DC2626';
+    const seta = l.siVar >= 0 ? '▲' : '▼';
+    const setaSO = l.soVar >= 0 ? '▲' : '▼';
+    const corBarra = l.siVar >= 0 ? '#059669' : '#DC2626';
+    const hasSO = l.soComp > 0 || l.soAtual > 0;
+    const gapTxt = hasSO
+      ? `<span style="color:${Math.abs(l.gap) > 5 ? '#D97706' : 'var(--ink-muted)'};font-weight:${Math.abs(l.gap) > 5 ? '700' : '400'}">${l.gap >= 0 ? '+' : ''}${l.gap.toFixed(1)}pp</span>`
+      : '<span style="color:var(--ink-muted)">—</span>';
+    html += `
+      <tr style="border-bottom:1px solid #F3F4F6">
+        <td style="padding:8px 10px"><b style="color:#1E3A5F">${l.franquia}</b></td>
+        <td style="padding:8px 10px">
+          <div style="background:#F3F4F6;border-radius:4px;height:22px;overflow:hidden;position:relative">
+            <div style="background:${corBarra};height:100%;width:${pct}%;display:flex;align-items:center;justify-content:flex-end;padding:0 6px;color:white;font-size:11px;font-weight:700">${pct > 30 ? fmt(l.siAtual) : ''}</div>
+            ${pct <= 30 ? `<span style="position:absolute;left:${pct}%;top:50%;transform:translateY(-50%);margin-left:6px;color:var(--ink);font-size:11px;font-weight:700">${fmt(l.siAtual)}</span>` : ''}
+          </div>
+        </td>
+        <td class="num" style="padding:8px 10px">${fmt(l.siAtual)}</td>
+        <td class="num" style="padding:8px 10px;color:${corVar};font-weight:700">${seta} ${l.siVar >= 0 ? '+' : ''}${l.siVar.toFixed(1)}%</td>
+        <td class="num" style="padding:8px 10px;color:${corVarSO};font-weight:600">${hasSO ? `${setaSO} ${l.soVar >= 0 ? '+' : ''}${l.soVar.toFixed(1)}%` : '—'}</td>
+        <td class="num" style="padding:8px 10px">${gapTxt}</td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table></div>`;
+  html += `<div style="font-size:10px;color:var(--ink-muted);margin-top:8px;font-style:italic">Gap SI-SO > 5pp pode indicar descompasso (estoque empurrado ou demanda em ajuste).</div>`;
+  document.getElementById('franquiaBarras').innerHTML = html;
+}
+
 function renderInsights(data, per){
   const ins = [];
   const totalAtual = somarPeriodo(data, per.periodoAtual);
@@ -4563,7 +5138,84 @@ function renderInsights(data, per){
     }
   }
 
-  document.getElementById('insightsList').innerHTML = ins.map(i=>`<li>${i}</li>`).join('');
+  // ============================================================
+  // RENDERIZACAO FINAL: MACRO + POR FRANQUIA
+  // ============================================================
+  let htmlFinal = '<div style="font-size:13px;font-weight:700;color:#1E3A5F;margin:0 0 10px 0;padding:8px 12px;background:#EFF6FF;border-radius:6px;border-left:4px solid #1E3A5F">🌍 MACRO · Visão Brasil</div>';
+  htmlFinal += '<ul style="margin:0 0 18px 0;padding-left:22px">';
+  htmlFinal += ins.map(i => `<li style="margin-bottom:6px">${i}</li>`).join('');
+  htmlFinal += '</ul>';
+
+  // Análise por franquia (usando dados do card Franquia)
+  if(window.__franquiaResultado && window.__franquiaResultado.length > 0){
+    htmlFinal += '<div style="font-size:13px;font-weight:700;color:#1E3A5F;margin:0 0 10px 0;padding:8px 12px;background:#FEF3C7;border-radius:6px;border-left:4px solid #D97706">🏷️ POR FRANQUIA · Análise individual</div>';
+    htmlFinal += '<ul style="margin:0;padding-left:22px">';
+
+    const linhasFr = window.__franquiaResultado;
+    // Mapear ações do plano por franquia (se houver)
+    const acoesPorFranquia = {};
+    if(window.__planoAcaoResultado){
+      const todasAcoes = [
+        ...(window.__planoAcaoResultado.criticos || []),
+        ...(window.__planoAcaoResultado.atencao || []),
+        ...(window.__planoAcaoResultado.oportunidades || [])
+      ];
+      for(const a of todasAcoes){
+        const fr = a.franquia || '—';
+        if(!acoesPorFranquia[fr]) acoesPorFranquia[fr] = {criticos:0, atencao:0, oportunidades:0, topItem: null};
+        if(a.categoria === 'critico'){ acoesPorFranquia[fr].criticos++; if(!acoesPorFranquia[fr].topItem) acoesPorFranquia[fr].topItem = a; }
+        else if(a.categoria === 'atencao'){ acoesPorFranquia[fr].atencao++; }
+        else if(a.categoria === 'oportunidade'){ acoesPorFranquia[fr].oportunidades++; }
+      }
+    }
+
+    for(const l of linhasFr){
+      const corVar = l.siVar >= 0 ? '#059669' : '#DC2626';
+      const icon = l.siVar > 5 ? '✅' : l.siVar >= 0 ? '🟢' : l.siVar > -5 ? '🟡' : l.siVar > -15 ? '⚠️' : '🚨';
+      const setaSI = l.siVar >= 0 ? '▲' : '▼';
+
+      // Driver: volume ou preço
+      let driverFr = '';
+      if(Math.abs(l.siUnidVar) > 0.5 && Math.abs(l.siVar) > 0.5){
+        const gapDr = l.siVar - l.siUnidVar;
+        if(Math.abs(gapDr) < 2) driverFr = ' (volume e preço equilibrados)';
+        else if(gapDr > 2) driverFr = ` (driver: preço/mix)`;
+        else driverFr = ` (driver: volume)`;
+      }
+
+      // Comparação SI vs SO
+      let comparativoSO = '';
+      if(l.soComp > 0 || l.soAtual > 0){
+        const gap = l.siVar - l.soVar;
+        if(Math.abs(gap) > 5){
+          comparativoSO = gap > 5
+            ? ` · ⚠️ SI ${gap.toFixed(1)}pp acima do SO (possível empurrado)`
+            : ` · ⚠️ SO ${Math.abs(gap).toFixed(1)}pp acima do SI (demanda forte)`;
+        } else {
+          comparativoSO = ` · SO ${l.soVar>=0?'+':''}${l.soVar.toFixed(1)}% (alinhado)`;
+        }
+      }
+
+      // Ações relacionadas
+      const ac = acoesPorFranquia[l.franquia];
+      let acoesTxt = '';
+      if(ac){
+        const partes = [];
+        if(ac.criticos > 0) partes.push(`🔴 ${ac.criticos} crítico${ac.criticos>1?'s':''}`);
+        if(ac.atencao > 0) partes.push(`🟠 ${ac.atencao} atenção`);
+        if(ac.oportunidades > 0) partes.push(`🚀 ${ac.oportunidades} oportunidade${ac.oportunidades>1?'s':''}`);
+        if(partes.length > 0) acoesTxt = ` · ${partes.join(' · ')}`;
+        if(ac.topItem){
+          acoesTxt += `<br><span style="font-size:11px;color:#92400E"><b>↳ Foco:</b> ${ac.topItem.nome}</span>`;
+        }
+      }
+
+      htmlFinal += `<li style="margin-bottom:8px">${icon} <b>${l.franquia}:</b> <span style="color:${corVar};font-weight:700">${setaSI} ${l.siVar>=0?'+':''}${l.siVar.toFixed(1)}%</span> em SI${driverFr}${comparativoSO}${acoesTxt}</li>`;
+    }
+    htmlFinal += '</ul>';
+  }
+
+  document.getElementById('insightsList').innerHTML = htmlFinal;
 }
 
 // ============================================================
@@ -5124,6 +5776,152 @@ function renderChartYTD(data, per){
   });
 }
 
+// ============================================================
+// renderChartDifference - "Show the Difference"
+// Sell-in vs Sell-out nos últimos 12 meses, com área sombreada
+// representando o gap (descompasso entre as duas fontes).
+// Aplica filtros: CLIENTE e PRODUTO (não aplica período).
+// ============================================================
+function renderChartDifference(){
+  const card = document.getElementById('chartDifferenceCard');
+  if(!card) return;
+  destroyChart('difference');
+
+  // Precisamos de ambas as fontes
+  if(!rawData || rawData.length === 0 || !rawDataSellout || rawDataSellout.length === 0){
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+
+  // Filtros aplicáveis
+  const clienteSet = clientesSelecionados.length ? new Set(clientesSelecionados) : null;
+  const produtoSet = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
+  const produtoSetNorm = produtoSet ? construirSetProdutosNorm(produtoSet) : null;
+  const franquiasSet = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
+  const tipoSet = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
+  const fontesSet = fontesSelecionadas.length ? new Set(fontesSelecionadas) : null;
+
+  // Identificar últimos 12 meses do sell-out (M-2)
+  const ultMesSO = selloutUltimoPeriodo;
+  if(!ultMesSO){
+    card.style.display = 'none';
+    return;
+  }
+
+  // Gerar lista dos últimos 12 meses terminando em ultMesSO
+  const ultimos12 = [];
+  let ano = ultMesSO.ano, mes = ultMesSO.mes;
+  for(let i = 0; i < 12; i++){
+    ultimos12.unshift({ano, mes, key: `${ano}-${String(mes).padStart(2,'0')}`});
+    mes--;
+    if(mes < 1){ mes = 12; ano--; }
+  }
+
+  // Agregar SI e SO por mês
+  const siPorMes = new Array(12).fill(0);
+  const soPorMes = new Array(12).fill(0);
+  const idxMap = {};
+  ultimos12.forEach((p, i) => { idxMap[p.key] = i; });
+
+  // SI
+  for(const r of rawData){
+    if(fontesSet && !fontesSet.has(String(r[COLS.FONTE]))) continue;
+    if(franquiasSet && !franquiasSet.has(String(r[COLS.FRANQUIA]))) continue;
+    if(tipoSet && !tipoSet.has(r[COLS.TIPO_CLIENTE])) continue;
+    if(clienteSet && !clienteSet.has(r[COLS.CLIENTE])) continue;
+    if(produtoSet && !produtoSet.has(r[COLS.PRODUTO])) continue;
+    const k = `${r[COLS.ANO]}-${String(r[COLS.MES_NUM]).padStart(2,'0')}`;
+    if(!(k in idxMap)) continue;
+    siPorMes[idxMap[k]] += getValor(r);
+  }
+  // SO
+  for(const r of rawDataSellout){
+    if(!selloutCanalOk(r)) continue;
+    if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
+    if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
+    if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
+    if(produtoSetNorm && !produtoBateFiltro(r.PRODUTO, produtoSetNorm)) continue;
+    const k = `${r.ANO}-${String(r.MES).padStart(2,'0')}`;
+    if(!(k in idxMap)) continue;
+    soPorMes[idxMap[k]] += getValorSO(r);
+  }
+
+  // Atualizar aviso
+  const labelInicio = `${MESES_NOME[ultimos12[0].mes-1]}/${ultimos12[0].ano}`;
+  const labelFim = `${MESES_NOME[ultimos12[11].mes-1]}/${ultimos12[11].ano}`;
+  document.getElementById('chartDifferenceAviso').textContent = `${labelInicio} a ${labelFim} · ${METRICAS[metricaAtual].label}`;
+
+  // Calcular gap absoluto (para áreas)
+  // Estratégia: para cada mês, área entre as duas linhas é mostrada como área sombreada
+  // Usamos dataset extra com fill: '+1' / '-1' pra preencher entre as linhas
+
+  const labels = ultimos12.map(p => `${MESES_NOME[p.mes-1]}/${String(p.ano).slice(-2)}`);
+
+  charts.difference = new Chart(document.getElementById('chartDifference'), {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: '🏭 Sell-in',
+          data: siPorMes,
+          borderColor: '#1E40AF',
+          backgroundColor: 'rgba(30, 64, 175, 0.15)',
+          borderWidth: 3,
+          tension: 0.3,
+          fill: '+1',  // preenche até a próxima série (SO)
+          pointRadius: 4,
+          pointBackgroundColor: '#1E40AF',
+          datalabels: { display: false }
+        },
+        {
+          label: '🏪 Sell-out',
+          data: soPorMes,
+          borderColor: '#059669',
+          backgroundColor: 'rgba(5, 150, 105, 0.05)',
+          borderWidth: 3,
+          tension: 0.3,
+          fill: false,
+          pointRadius: 4,
+          pointBackgroundColor: '#059669',
+          datalabels: { display: false }
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { font: { family: "'Open Sans'", weight: 600 } } },
+        tooltip: {
+          callbacks: {
+            label: c => `${c.dataset.label}: ${fmt(c.parsed.y)}`,
+            footer: (items) => {
+              if(items.length === 2){
+                const si = items[0].parsed.y;
+                const so = items[1].parsed.y;
+                const gap = si - so;
+                const sinal = gap >= 0 ? '+' : '-';
+                return `Gap: ${sinal}${fmt(Math.abs(gap))} ${gap >= 0 ? '(SI>SO)' : '(SO>SI)'}`;
+              }
+              return '';
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => fmt(v), font: { family: "'Open Sans'", weight: 300 } }
+        },
+        x: { ticks: { font: { family: "'Open Sans'", weight: 300 } } }
+      }
+    }
+  });
+}
+
 function renderChartFranquia(data, per){
   destroyChart('franquia');
   destroyChart('franquiaAnt');
@@ -5193,6 +5991,80 @@ function renderChartFranquia(data, per){
 
   renderDonut('chartFranquia', entriesA, 'franquia');
   renderDonut('chartFranquiaAnt', entriesB, 'franquiaAnt');
+
+  // ============================================================
+  // GRÁFICO MOVERS · "Onde estava (Comp) → Onde está (Atual)"
+  // Linhas diagonais conectando valor antigo (esquerda) ao novo (direita)
+  // ============================================================
+  destroyChart('franquiaMovers');
+  const moversCanvas = document.getElementById('chartFranquiaMovers');
+  if(moversCanvas){
+    // Cores das franquias
+    const CORES_MOVERS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
+    // Cada franquia vira um dataset com 2 pontos: [valor_comp, valor_atual]
+    const todasFranquiasMov = [...new Set([...Object.keys(mapA), ...Object.keys(mapB)])];
+    todasFranquiasMov.sort((a,b) => (mapA[b]?.valor||0) - (mapA[a]?.valor||0));
+    const datasets = todasFranquiasMov.map((fr, idx) => {
+      const v1 = mapB[fr]?.valor || 0;
+      const v2 = mapA[fr]?.valor || 0;
+      const cor = CORES_MOVERS[idx % CORES_MOVERS.length];
+      return {
+        label: fr,
+        data: [v1, v2],
+        borderColor: cor,
+        backgroundColor: cor,
+        borderWidth: 2.5,
+        tension: 0,
+        pointRadius: 6,
+        pointHoverRadius: 8,
+        pointBackgroundColor: cor,
+        datalabels: {
+          display: (ctx) => true,
+          align: (ctx) => ctx.dataIndex === 0 ? 'left' : 'right',
+          anchor: 'center',
+          offset: 8,
+          color: cor,
+          font: {family: "'Open Sans'", weight: 700, size: 10},
+          formatter: (v, ctx) => {
+            // Mostra nome + valor: "PHARMA 50" à esquerda, "65 PHARMA" à direita
+            const nomeFr = ctx.dataset.label;
+            return ctx.dataIndex === 0 ? `${nomeFr} ${fmt(v)}` : `${fmt(v)} ${nomeFr}`;
+          },
+          backgroundColor: 'rgba(255,255,255,0.9)',
+          borderRadius: 4,
+          padding: {top: 2, bottom: 2, left: 4, right: 4}
+        }
+      };
+    });
+    charts.franquiaMovers = new Chart(moversCanvas, {
+      type: 'line',
+      data: {
+        labels: [per.labelComp || 'Comparado', per.labelAtual || 'Atual'],
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { left: 60, right: 60, top: 10, bottom: 10 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: c => `${c.dataset.label}: ${fmt(c.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            position: 'bottom',
+            grid: { display: false },
+            ticks: { font: { family: "'Open Sans'", weight: 600, size: 11 } }
+          },
+          y: { display: false, beginAtZero: true }
+        }
+      }
+    });
+  }
 }
 
 function renderChartFranquiaComp(data, per){
@@ -5217,23 +6089,6 @@ function renderChartFranquiaComp(data, per){
       labels: todasFranquias,
       datasets:[
         {
-          label: per.labelAtual,
-          data: valoresAtual,
-          backgroundColor: CORES_ALCON.blue,
-          borderRadius: 4,
-          yAxisID: 'y',
-          order: 2,
-          datalabels:{
-            anchor:'end', align:'end', offset:2,
-            color:CORES_ALCON.blue,
-            font:{family:"'Open Sans'",weight:700,size:10},
-            formatter:(v) => v > 0 ? fmt(v) : '',
-            backgroundColor:'rgba(255,255,255,0.85)',
-            borderRadius:3,
-            padding:{top:1,bottom:1,left:4,right:4}
-          }
-        },
-        {
           label: per.labelComp,
           data: valoresComp,
           backgroundColor: CORES_ALCON.blueLight,
@@ -5244,6 +6099,23 @@ function renderChartFranquiaComp(data, per){
             anchor:'end', align:'end', offset:2,
             color:CORES_ALCON.teal,
             font:{family:"'Open Sans'",weight:600,size:9},
+            formatter:(v) => v > 0 ? fmt(v) : '',
+            backgroundColor:'rgba(255,255,255,0.85)',
+            borderRadius:3,
+            padding:{top:1,bottom:1,left:4,right:4}
+          }
+        },
+        {
+          label: per.labelAtual,
+          data: valoresAtual,
+          backgroundColor: CORES_ALCON.blue,
+          borderRadius: 4,
+          yAxisID: 'y',
+          order: 2,
+          datalabels:{
+            anchor:'end', align:'end', offset:2,
+            color:CORES_ALCON.blue,
+            font:{family:"'Open Sans'",weight:700,size:10},
             formatter:(v) => v > 0 ? fmt(v) : '',
             backgroundColor:'rgba(255,255,255,0.85)',
             borderRadius:3,
@@ -6218,28 +7090,101 @@ async function exportOnePager(){
       });
     });
 
-    // ============ STORY EXECUTIVO ============
+    // ============ STORY EXECUTIVO (MACRO) ============
     const varPctPrincipal = totaisComp.BRL > 0 ? ((totaisAtual.BRL - totaisComp.BRL) / totaisComp.BRL * 100) : 0;
     const storyParts = gerarStoryExecutivo(base, per, varPctPrincipal);
     slide.addShape(pptx.ShapeType.rect, {
-      x:0.3, y:2.35, w:11.1, h:1.55, fill:{color:AZUL_CLARO}, line:{color:AZUL, width:1}
+      x:0.3, y:2.35, w:11.1, h:1.25, fill:{color:AZUL_CLARO}, line:{color:AZUL, width:1}
     });
-    slide.addText('📊 RESUMO EXECUTIVO', {
-      x:0.5, y:2.42, w:5, h:0.25, fontSize:10, bold:true, color:AZUL, fontFace:'Open Sans'
+    slide.addText('💡 INSIGHT RÁPIDO · Macro Brasil', {
+      x:0.5, y:2.42, w:5, h:0.22, fontSize:9.5, bold:true, color:AZUL, fontFace:'Open Sans'
     });
     // Renderiza cada parte em sua própria linha com bullet
-    const storyBullets = storyParts.map(p => ({text: '▌ ' + p + '\n', options: {fontSize:9.5, color:'1E3A5F'}}));
+    const storyBullets = storyParts.map(p => ({text: '▌ ' + p + '\n', options: {fontSize:8.5, color:'1E3A5F'}}));
     slide.addText(storyBullets, {
-      x:0.5, y:2.7, w:10.7, h:1.15, fontFace:'Open Sans', valign:'top', paraSpaceBefore:2, paraSpaceAfter:2
+      x:0.5, y:2.68, w:10.7, h:0.9, fontFace:'Open Sans', valign:'top', paraSpaceBefore:1, paraSpaceAfter:1
     });
 
-    // ============ SELL-IN × SELL-OUT (saúde do canal) ============
-    const yBaseSO = 4.0;
+    // ============ ANÁLISE POR FRANQUIA (NOVO) ============
+    const yBaseFr = 3.7;
     slide.addShape(pptx.ShapeType.rect, {
-      x:0.3, y:yBaseSO, w:11.1, h:1.5, fill:{color:'F0F9FF'}, line:{color:'0EA5E9', width:1}
+      x:0.3, y:yBaseFr, w:11.1, h:1.3, fill:{color:'FFFFFF'}, line:{color:'1E3A5F', width:1}
+    });
+    slide.addText('🏷️ ANÁLISE POR FRANQUIA · Variação YoY', {
+      x:0.5, y:yBaseFr+0.05, w:7, h:0.22, fontSize:9.5, bold:true, color:'1E3A5F', fontFace:'Open Sans'
+    });
+    slide.addText(`Métrica: ${METRICAS[metricaAtual].label}`, {
+      x:7.5, y:yBaseFr+0.05, w:3.7, h:0.22, fontSize:8, italic:true, color:CINZA, fontFace:'Open Sans', align:'right'
+    });
+
+    // Calcular ou usar resultado do card franquia
+    let linhasFranquia = window.__franquiaResultado;
+    if(!linhasFranquia || linhasFranquia.length === 0){
+      // fallback: calcular aqui
+      const aggFr = {};
+      const periodoAtualSetFr = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
+      const periodoCompSetFr = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
+      for(const r of base){
+        const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+        const fr = r[COLS.FRANQUIA] || '—';
+        if(!aggFr[fr]) aggFr[fr] = {atual:0, comp:0};
+        const v = getValor(r);
+        if(periodoAtualSetFr.has(k)) aggFr[fr].atual += v;
+        if(periodoCompSetFr.has(k)) aggFr[fr].comp += v;
+      }
+      linhasFranquia = Object.entries(aggFr).map(([fr, a]) => ({
+        franquia: fr,
+        siAtual: a.atual,
+        siComp: a.comp,
+        siVar: a.comp ? ((a.atual - a.comp)/a.comp*100) : (a.atual>0?100:0)
+      })).sort((a,b) => b.siAtual - a.siAtual);
+    }
+
+    if(linhasFranquia && linhasFranquia.length > 0){
+      // Tabela de franquias: cada linha com barra horizontal
+      const xInicio = 0.5;
+      const yTabelaTopo = yBaseFr + 0.32;
+      const linhasMax = Math.min(5, linhasFranquia.length);
+      const altLinha = Math.min(0.18, 0.92 / linhasMax);
+      const maxAbs = Math.max(...linhasFranquia.map(l => l.siAtual), 1);
+
+      linhasFranquia.slice(0, 5).forEach((l, idx) => {
+        const yL = yTabelaTopo + idx * altLinha;
+        const pctBar = l.siAtual / maxAbs;
+        const corBar = l.siVar >= 0 ? '059669' : 'DC2626';
+        const corVar = l.siVar >= 0 ? '059669' : 'DC2626';
+        const seta = l.siVar >= 0 ? '▲' : '▼';
+
+        // Nome franquia
+        slide.addText(l.franquia, {
+          x:xInicio, y:yL, w:1.8, h:altLinha, fontSize:8.5, bold:true, color:'1E3A5F', fontFace:'Open Sans', valign:'middle'
+        });
+        // Barra horizontal (fundo cinza claro)
+        slide.addShape(pptx.ShapeType.rect, {
+          x:xInicio + 1.85, y:yL + 0.03, w:5.5, h:altLinha - 0.06, fill:{color:'F3F4F6'}, line:{type:'none'}
+        });
+        // Barra colorida
+        slide.addShape(pptx.ShapeType.rect, {
+          x:xInicio + 1.85, y:yL + 0.03, w:Math.max(5.5 * pctBar, 0.05), h:altLinha - 0.06, fill:{color:corBar}, line:{type:'none'}
+        });
+        // Valor atual (à direita da barra)
+        slide.addText(fmt(l.siAtual), {
+          x:xInicio + 7.5, y:yL, w:1.3, h:altLinha, fontSize:8.5, color:'1E3A5F', fontFace:'Open Sans', valign:'middle', align:'right'
+        });
+        // % variação
+        slide.addText(`${seta} ${l.siVar >= 0 ? '+' : ''}${l.siVar.toFixed(1)}%`, {
+          x:xInicio + 8.9, y:yL, w:1.6, h:altLinha, fontSize:8.5, bold:true, color:corVar, fontFace:'Open Sans', valign:'middle', align:'right'
+        });
+      });
+    }
+
+    // ============ SELL-IN × SELL-OUT (saúde do canal) ============
+    const yBaseSO = 5.1;
+    slide.addShape(pptx.ShapeType.rect, {
+      x:0.3, y:yBaseSO, w:11.1, h:1.2, fill:{color:'F0F9FF'}, line:{color:'0EA5E9', width:1}
     });
     slide.addText('🔄 SELL-IN × SELL-OUT · Saúde do Canal', {
-      x:0.5, y:yBaseSO+0.07, w:11, h:0.25, fontSize:10, bold:true, color:'0369A1', fontFace:'Open Sans'
+      x:0.5, y:yBaseSO+0.05, w:11, h:0.22, fontSize:9.5, bold:true, color:'0369A1', fontFace:'Open Sans'
     });
 
     if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
@@ -6329,11 +7274,11 @@ async function exportOnePager(){
       // Renderizar resumo SI×SO
       const yLinha1 = yBaseSO + 0.4;
       slide.addText([
-        {text:'Sell-in: ', options:{fontSize:11, bold:true, color:'0369A1'}},
+        {text:'🏭 Sell-in: ', options:{fontSize:12, bold:true, color:'003595'}},
         {text:`${dPctSI_total >= 0 ? '+' : ''}${dPctSI_total.toFixed(1)}%`, options:{fontSize:13, bold:true, color: dPctSI_total >= 0 ? VERDE : VERMELHO}},
-        {text:'    │    Sell-out: ', options:{fontSize:11, bold:true, color:'0369A1'}},
+        {text:'    │    🏪 Sell-out: ', options:{fontSize:12, bold:true, color:'003595'}},
         {text:`${dPctSO_total >= 0 ? '+' : ''}${dPctSO_total.toFixed(1)}%`, options:{fontSize:13, bold:true, color: dPctSO_total >= 0 ? VERDE : VERMELHO}},
-        {text:'    │    Gap: ', options:{fontSize:11, bold:true, color:'0369A1'}},
+        {text:'    │    Gap: ', options:{fontSize:12, bold:true, color:'003595'}},
         {text:`${gapTotal >= 0 ? '+' : ''}${gapTotal.toFixed(1)}pp`, options:{fontSize:13, bold:true, color: Math.abs(gapTotal) > 5 ? VERMELHO : VERDE}},
       ], {x:0.5, y:yLinha1, w:10.5, h:0.3, valign:'top'});
 
@@ -6372,12 +7317,12 @@ async function exportOnePager(){
     }
 
     // ============ ONDE ATACAR · Top 3 priorizado ============
-    const yBaseAcoes = 5.65;
+    const yBaseAcoes = 6.4;
     slide.addShape(pptx.ShapeType.rect, {
-      x:0.3, y:yBaseAcoes, w:11.1, h:1.65, fill:{color:'FFFBEB'}, line:{color:'F59E0B', width:1}
+      x:0.3, y:yBaseAcoes, w:11.1, h:1.1, fill:{color:'FFFBEB'}, line:{color:'F59E0B', width:1}
     });
     slide.addText('🎯 ONDE ATACAR · Top 3 prioridades', {
-      x:0.5, y:yBaseAcoes+0.07, w:11, h:0.25, fontSize:10, bold:true, color:'92400E', fontFace:'Open Sans'
+      x:0.5, y:yBaseAcoes+0.04, w:11, h:0.22, fontSize:9.5, bold:true, color:'92400E', fontFace:'Open Sans'
     });
 
     // Pegar 1 crítico, 1 atenção, 1 oportunidade do Plano de Ação
@@ -6397,73 +7342,53 @@ async function exportOnePager(){
       const wAcao = (11.1 - 0.4) / 3;  // largura de cada caixa
       top3.slice(0, 3).forEach((a, idx) => {
         const xAcao = 0.4 + idx * wAcao;
-        const yAcao = yBaseAcoes + 0.35;
+        const yAcao = yBaseAcoes + 0.28;
         const corCat = a.categoria === 'critico' ? 'DC2626' : (a.categoria === 'atencao' ? 'F59E0B' : '10B981');
         const fundoCat = a.categoria === 'critico' ? 'FEF2F2' : (a.categoria === 'atencao' ? 'FFFBEB' : 'ECFDF5');
         const icon = a.categoria === 'critico' ? '🔴' : (a.categoria === 'atencao' ? '🟠' : '🟢');
 
         // Caixa
         slide.addShape(pptx.ShapeType.rect, {
-          x:xAcao, y:yAcao, w:wAcao - 0.1, h:1.2, fill:{color: BRANCO}, line:{color: corCat, width:1.5}
+          x:xAcao, y:yAcao, w:wAcao - 0.1, h:0.78, fill:{color: BRANCO}, line:{color: corCat, width:1.5}
         });
 
         // Header da caixa (#1 + impacto)
         const sinalImpacto = a.impactoSinal >= 0 ? '+' : '-';
         slide.addText([
-          {text:`${icon} #${idx+1}`, options:{fontSize:9, bold:true, color: corCat}},
-          {text:`  ${sinalImpacto}${fmt(Math.abs(a.impactoSinal))}`, options:{fontSize:11, bold:true, color: a.impactoSinal >= 0 ? VERDE : VERMELHO}}
-        ], {x:xAcao+0.1, y:yAcao+0.06, w:wAcao-0.2, h:0.25});
+          {text:`${icon} #${idx+1}`, options:{fontSize:8, bold:true, color: corCat}},
+          {text:`  ${sinalImpacto}${fmt(Math.abs(a.impactoSinal))}`, options:{fontSize:9, bold:true, color: a.impactoSinal >= 0 ? VERDE : VERMELHO}}
+        ], {x:xAcao+0.08, y:yAcao+0.03, w:wAcao-0.16, h:0.2});
 
         // Nome
         slide.addText(a.nome, {
-          x:xAcao+0.1, y:yAcao+0.32, w:wAcao-0.2, h:0.3,
-          fontSize:11, bold:true, color:'1E3A5F', fontFace:'Open Sans'
+          x:xAcao+0.08, y:yAcao+0.22, w:wAcao-0.16, h:0.22,
+          fontSize:9, bold:true, color:'1E3A5F', fontFace:'Open Sans'
         });
 
         // Diagnóstico (curto)
-        const diagnosticoCurto = a.diagnostico.length > 110 ? a.diagnostico.substring(0, 107) + '...' : a.diagnostico;
+        const diagnosticoCurto = a.diagnostico.length > 80 ? a.diagnostico.substring(0, 77) + '...' : a.diagnostico;
         slide.addText(diagnosticoCurto, {
-          x:xAcao+0.1, y:yAcao+0.62, w:wAcao-0.2, h:0.45,
-          fontSize:8.5, color:'334155', fontFace:'Open Sans', valign:'top'
+          x:xAcao+0.08, y:yAcao+0.44, w:wAcao-0.16, h:0.32,
+          fontSize:7.5, color:'334155', fontFace:'Open Sans', valign:'top'
         });
 
         // Ação
         const acaoCurta = a.acao.length > 100 ? a.acao.substring(0, 97) + '...' : a.acao;
         slide.addText([
           {text:'→ ', options:{fontSize:9, bold:true, color: corCat}},
-          {text: acaoCurta, options:{fontSize:8.5, bold:true, color:'1E3A5F'}}
-        ], {x:xAcao+0.1, y:yAcao+1.1, w:wAcao-0.2, h:0.3, valign:'top'});
+          {text: acaoCurta, options:{fontSize:7.5, bold:true, color:'1E3A5F'}}
+        ], {x:xAcao+0.08, y:yAcao+0.55, w:wAcao-0.16, h:0.2, valign:'top'});
       });
     } else {
       slide.addText('Plano de ação não disponível. Veja card 🎯 Plano de Ação no dashboard para gerar.', {
-        x:0.5, y:yBaseAcoes+0.7, w:10.7, h:0.5, fontSize:10, italic:true, color:CINZA, fontFace:'Open Sans', align:'center'
+        x:0.5, y:yBaseAcoes+0.5, w:10.7, h:0.3, fontSize:10, italic:true, color:CINZA, fontFace:'Open Sans', align:'center'
       });
     }
 
-    // ============ DECOMPOSIÇÃO (rodapé compacto) ============
-    if(window.__decompResultado){
-      const d = window.__decompResultado;
-      const totalAbs = Math.abs(d.totalVolume) + Math.abs(d.totalPreco) + Math.abs(d.totalMix);
-      const pctV = totalAbs > 0 ? (Math.abs(d.totalVolume) / totalAbs * 100) : 0;
-      const pctP = totalAbs > 0 ? (Math.abs(d.totalPreco) / totalAbs * 100) : 0;
-      const pctM = totalAbs > 0 ? (Math.abs(d.totalMix) / totalAbs * 100) : 0;
-      slide.addShape(pptx.ShapeType.rect, {
-        x:0.3, y:7.35, w:11.1, h:0.55, fill:{color:CINZA_CLARO}, line:{color:'CBD5E1', width:0.5}
-      });
-      slide.addText([
-        {text:'🔍 Decomposição BRL: ', options:{fontSize:9.5, bold:true, color:AZUL}},
-        {text:'Volume ', options:{fontSize:10, bold:true, color:'10B981'}},
-        {text:`${d.totalVolume >= 0 ? '+' : '-'}${fmt(Math.abs(d.totalVolume))} (${pctV.toFixed(0)}%)   │   `, options:{fontSize:10, color:PRETO}},
-        {text:'Preço ', options:{fontSize:10, bold:true, color:'3B82F6'}},
-        {text:`${d.totalPreco >= 0 ? '+' : '-'}${fmt(Math.abs(d.totalPreco))} (${pctP.toFixed(0)}%)   │   `, options:{fontSize:10, color:PRETO}},
-        {text:'Mix ', options:{fontSize:10, bold:true, color:'A855F7'}},
-        {text:`${d.totalMix >= 0 ? '+' : '-'}${fmt(Math.abs(d.totalMix))} (${pctM.toFixed(0)}%)`, options:{fontSize:10, color:PRETO}}
-      ], {x:0.5, y:7.4, w:10.7, h:0.5, valign:'middle'});
-    }
-
+    // Rodapé (footer) - removido decomposição pra dar espaço ao novo bloco franquia
     // ============ FOOTER ============
     slide.addText(`Gerado por Alcon Sales Insights · ${dataHoje} · One-Pager Executivo`, {
-      x:0.3, y:7.97, w:11.1, h:0.2, fontSize:7.5, color:CINZA, italic:true, align:'center', fontFace:'Open Sans'
+      x:0.3, y:7.55, w:11.1, h:0.2, fontSize:7.5, color:CINZA, italic:true, align:'center', fontFace:'Open Sans'
     });
 
     // Download
@@ -7005,7 +7930,7 @@ async function exportPPTX(){
     // Linha de seção SELL-IN
     const cellsRows = [headerRow];
     cellsRows.push([
-      {text:'📦 SELL-IN', options:{bold:true, color:BRANCO, fill:{color:'003595'}, fontSize:11, align:'left', colspan:7}}
+      {text:'🏭 SELL-IN', options:{bold:true, color:BRANCO, fill:{color:'003595'}, fontSize:11, align:'left', colspan:7}}
     ]);
     // Unidades SELL-IN
     const linhaUnidIn = [
@@ -7103,9 +8028,9 @@ async function exportPPTX(){
       const periodoLabel = periodoSelloutAtualPpt.length > 0
         ? `${MESES_NOME[periodoSelloutAtualPpt[0].mes-1]}/${periodoSelloutAtualPpt[0].ano} - ${MESES_NOME[periodoSelloutAtualPpt[periodoSelloutAtualPpt.length-1].mes-1]}/${periodoSelloutAtualPpt[periodoSelloutAtualPpt.length-1].ano}`
         : '—';
-      labelSelloutPpt = `🛒 SELL-OUT (${periodoLabel})`;
+      labelSelloutPpt = `🏪 SELL-OUT (${periodoLabel})`;
     } else {
-      labelSelloutPpt = '🛒 SELL-OUT (em desenvolvimento)';
+      labelSelloutPpt = '🏪 SELL-OUT (em desenvolvimento)';
     }
 
     cellsRows.push([
@@ -7727,15 +8652,15 @@ async function exportPPTX(){
         const abaixoSO = linhasTgt.filter(l => l.gapSO !== null && l.gapSO < -5).length;
 
         sTgt.addShape('rect', {x:0.3, y:1.65, w:4.2, h:0.7, fill:{color:'EFF6FF'}, line:{color:'1E40AF', width:1}});
-        sTgt.addText('🛒 SO · ✅ Atinge', {x:0.5, y:1.7, w:2.5, h:0.3, fontSize:10, bold:true, color:VERDE});
+        sTgt.addText('🏪 SO · ✅ Atinge', {x:0.5, y:1.7, w:2.5, h:0.3, fontSize:10, bold:true, color:VERDE});
         sTgt.addText(String(acimaSO), {x:3.0, y:1.7, w:1.4, h:0.6, fontSize:24, bold:true, color:VERDE, align:'right'});
 
         sTgt.addShape('rect', {x:4.7, y:1.65, w:4.2, h:0.7, fill:{color:'EFF6FF'}, line:{color:'1E40AF', width:1}});
-        sTgt.addText('🛒 SO · ⚠️ Próximo', {x:4.9, y:1.7, w:2.5, h:0.3, fontSize:10, bold:true, color:'92400E'});
+        sTgt.addText('🏪 SO · ⚠️ Próximo', {x:4.9, y:1.7, w:2.5, h:0.3, fontSize:10, bold:true, color:'92400E'});
         sTgt.addText(String(proximoSO), {x:7.4, y:1.7, w:1.4, h:0.6, fontSize:24, bold:true, color:'92400E', align:'right'});
 
         sTgt.addShape('rect', {x:9.1, y:1.65, w:4.0, h:0.7, fill:{color:'EFF6FF'}, line:{color:'1E40AF', width:1}});
-        sTgt.addText('🛒 SO · 🚨 Abaixo', {x:9.3, y:1.7, w:2.4, h:0.3, fontSize:10, bold:true, color:VERMELHO});
+        sTgt.addText('🏪 SO · 🚨 Abaixo', {x:9.3, y:1.7, w:2.4, h:0.3, fontSize:10, bold:true, color:VERMELHO});
         sTgt.addText(String(abaixoSO), {x:11.7, y:1.7, w:1.3, h:0.6, fontSize:24, bold:true, color:VERMELHO, align:'right'});
       }
 
@@ -7746,8 +8671,8 @@ async function exportPPTX(){
 
         const rowsTgt = [[
           {text:'Produto', options:{bold:true, color:BRANCO, fill:{color:headerColor}}},
-          {text:'📦 Sell-in', options:{bold:true, color:BRANCO, fill:{color:headerColor}, align:'right'}},
-          {text:'🛒 Sell-out', options:{bold:true, color:BRANCO, fill:{color:headerColor}, align:'right'}},
+          {text:'🏭 Sell-in', options:{bold:true, color:BRANCO, fill:{color:headerColor}, align:'right'}},
+          {text:'🏪 Sell-out', options:{bold:true, color:BRANCO, fill:{color:headerColor}, align:'right'}},
           {text:'Target', options:{bold:true, color:BRANCO, fill:{color:headerColor}, align:'right'}},
           {text:'Resultado SI', options:{bold:true, color:BRANCO, fill:{color:headerColor}, align:'right'}},
           {text:'Resultado SO', options:{bold:true, color:BRANCO, fill:{color:headerColor}, align:'right'}}
@@ -7830,8 +8755,8 @@ async function exportPPTX(){
     }).sort((a,b)=>b.atual-a.atual).slice(0,15);
 
     // Cabeçalhos das duas tabelas
-    s6.addText('📦 SELL-IN', {x:0.3, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
-    s6.addText('🛒 SELL-OUT (M-2)', {x:6.7, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'1E40AF', fontFace:'Open Sans'});
+    s6.addText('🏭 SELL-IN', {x:0.3, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
+    s6.addText('🏪 SELL-OUT (M-2)', {x:6.7, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
 
     // Tabela SI (esquerda)
     const rowsCSI = [[
@@ -7896,8 +8821,8 @@ async function exportPPTX(){
       return {nome:p, franquia:atualP[p].franquia, atual:a, comp:cp, dPct: cp?((a-cp)/cp*100):(a>0?100:0)};
     }).sort((a,b)=>b.atual-a.atual).slice(0,15);
 
-    s7.addText('📦 SELL-IN', {x:0.3, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
-    s7.addText('🛒 SELL-OUT (M-2)', {x:6.7, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'1E40AF', fontFace:'Open Sans'});
+    s7.addText('🏭 SELL-IN', {x:0.3, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
+    s7.addText('🏪 SELL-OUT (M-2)', {x:6.7, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
 
     const rowsPSI = [[
       {text:'#', options:{bold:true, color:BRANCO, fill:{color:AZUL}, align:'center'}},
@@ -8189,7 +9114,7 @@ async function exportPPTX(){
     const totalCrescAbs = cresceProds.reduce((s,p) => s + p.dAbs, 0);
 
     // ============ COLUNA ESQUERDA: SELL-IN ============
-    s8.addText('SELL-IN', {x:0.3, y:0.85, w:6.3, h:0.3, fontSize:13, bold:true, color:AZUL, fontFace:'Open Sans'});
+    s8.addText('🏭 SELL-IN', {x:0.3, y:0.85, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
 
     if(cresceProds.length === 0){
       s8.addText('Sem produtos relevantes em crescimento.', {
@@ -8229,7 +9154,7 @@ async function exportPPTX(){
     }
 
     // ============ COLUNA DIREITA: SELL-OUT ============
-    s8.addText(`SELL-OUT${labelSOPeriodo ? ' · ' + labelSOPeriodo : ''}`, {x:6.8, y:0.85, w:6.3, h:0.3, fontSize:13, bold:true, color:'1E40AF', fontFace:'Open Sans'});
+    s8.addText(`🏪 SELL-OUT${labelSOPeriodo ? ' · ' + labelSOPeriodo : ''}`, {x:6.8, y:0.85, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
 
     if(!temSOSlide){
       s8.addText('Sell-out não disponível neste filtro.', {
@@ -8374,7 +9299,7 @@ async function exportPPTX(){
     const totalQuedaAbs = quedaProds.reduce((s,p) => s + Math.abs(p.dAbs), 0);
 
     // ============ COLUNA ESQUERDA: SELL-IN ============
-    s9.addText('SELL-IN', {x:0.3, y:0.85, w:6.3, h:0.3, fontSize:13, bold:true, color:AZUL, fontFace:'Open Sans'});
+    s9.addText('🏭 SELL-IN', {x:0.3, y:0.85, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
 
     if(quedaProds.length === 0){
       s9.addText('Sem produtos relevantes em queda neste filtro.', {
@@ -8414,7 +9339,7 @@ async function exportPPTX(){
     }
 
     // ============ COLUNA DIREITA: SELL-OUT ============
-    s9.addText(`SELL-OUT${labelSOPeriodo ? ' · ' + labelSOPeriodo : ''}`, {x:6.8, y:0.85, w:6.3, h:0.3, fontSize:13, bold:true, color:'1E40AF', fontFace:'Open Sans'});
+    s9.addText(`🏪 SELL-OUT${labelSOPeriodo ? ' · ' + labelSOPeriodo : ''}`, {x:6.8, y:0.85, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
 
     if(!temSOSlide){
       s9.addText('Sell-out não disponível neste filtro.', {
@@ -8472,6 +9397,323 @@ async function exportPPTX(){
       s9.addText(recTxtQ, {
         x:0.3, y:6.75, w:12.7, h:0.5,
         fontSize:10, color:'78350F', bold:true, fill:{color:'FEF3C7'}, valign:'middle', margin:10, line:{color:'F59E0B', width:1}
+      });
+    }
+
+    // ============================================================
+    // SLIDES NOVOS: Visualizações inspiradas em Chartosaur
+    // ============================================================
+
+    // ============ SLIDE: Análise por Franquia (Evaluation com barras YoY) ============
+    if(window.__franquiaResultado && window.__franquiaResultado.length > 0){
+      const sFrEval = pptx.addSlide();
+      sFrEval.background = {color: 'FFFFFF'};
+      sFrEval.addText('📊 ANÁLISE POR FRANQUIA · Variação YoY', {
+        x:0.3, y:0.3, w:12.7, h:0.5, fontSize:18, bold:true, color:AZUL, fontFace:'Open Sans'
+      });
+      sFrEval.addText(`${per.labelAtual} vs ${per.labelComp || '—'} · ${METRICAS[metricaAtual].label}`, {
+        x:0.3, y:0.8, w:12.7, h:0.3, fontSize:11, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
+
+      const linhasFr = window.__franquiaResultado;
+      const totalAtualFr = linhasFr.reduce((s,l) => s+l.siAtual, 0);
+      const totalCompFr = linhasFr.reduce((s,l) => s+l.siComp, 0);
+      const totalVarFr = totalCompFr > 0 ? ((totalAtualFr - totalCompFr)/totalCompFr*100) : 0;
+
+      const maxAbsVar = Math.max(Math.abs(totalVarFr), ...linhasFr.map(l => Math.abs(l.siVar)), 50);
+      const escala = Math.ceil(maxAbsVar / 10) * 10;
+
+      // Cabeçalho escala
+      sFrEval.addText(`← ${escala}% queda`, {x:0.5, y:1.3, w:3, h:0.2, fontSize:9, color:VERMELHO, italic:true, fontFace:'Open Sans'});
+      sFrEval.addText('0%', {x:6.4, y:1.3, w:0.5, h:0.2, fontSize:9, bold:true, color:CINZA, align:'center', fontFace:'Open Sans'});
+      sFrEval.addText(`+${escala}% crescimento →`, {x:9.5, y:1.3, w:3, h:0.2, fontSize:9, color:VERDE, italic:true, fontFace:'Open Sans', align:'right'});
+
+      // Total Brasil (destaque)
+      const yTotal = 1.55;
+      const xBarra = 2.0, wBarra = 8.5;
+      const xCentro = xBarra + wBarra/2;
+      sFrEval.addShape(pptx.ShapeType.rect, {x:0.3, y:yTotal, w:12.7, h:0.55, fill:{color:'EFF6FF'}, line:{color:AZUL, width:1}});
+      sFrEval.addText('🇧🇷 TOTAL BRASIL', {x:0.5, y:yTotal+0.08, w:1.6, h:0.4, fontSize:13, bold:true, color:AZUL, fontFace:'Open Sans', valign:'middle'});
+      // Fundo da barra
+      sFrEval.addShape(pptx.ShapeType.rect, {x:xBarra, y:yTotal+0.12, w:wBarra, h:0.3, fill:{color:'F3F4F6'}, line:{color:'E5E7EB', width:0.5}});
+      // Linha central
+      sFrEval.addShape(pptx.ShapeType.line, {x:xCentro, y:yTotal+0.1, w:0, h:0.34, line:{color:'94A3B8', width:1}});
+      // Barra total
+      const pctTotal = Math.min(Math.abs(totalVarFr)/escala, 1) * (wBarra/2);
+      const corTotal = totalVarFr >= 0 ? VERDE : VERMELHO;
+      const xTotalBar = totalVarFr >= 0 ? xCentro : xCentro - pctTotal;
+      sFrEval.addShape(pptx.ShapeType.rect, {x:xTotalBar, y:yTotal+0.14, w:pctTotal, h:0.26, fill:{color:corTotal}, line:{type:'none'}});
+      sFrEval.addText(`${totalVarFr>=0?'▲ +':'▼ '}${totalVarFr.toFixed(1)}%`, {
+        x: totalVarFr >= 0 ? xCentro + pctTotal + 0.1 : xCentro - pctTotal - 1.1,
+        y: yTotal+0.13, w:1.0, h:0.3, fontSize:11, bold:true, color:corTotal, fontFace:'Open Sans', valign:'middle', align: totalVarFr >= 0 ? 'left' : 'right'
+      });
+      sFrEval.addText(fmt(totalAtualFr), {x:10.8, y:yTotal+0.12, w:2.0, h:0.3, fontSize:12, bold:true, color:AZUL, align:'right', fontFace:'Open Sans', valign:'middle'});
+
+      // Cada franquia
+      let yFr = 2.25;
+      const altFr = 0.4;
+      linhasFr.forEach((l, idx) => {
+        if(yFr > 6.8) return; // limite slide
+        sFrEval.addText(l.franquia, {x:0.5, y:yFr+0.05, w:1.6, h:0.3, fontSize:11, bold:true, color:'1E3A5F', fontFace:'Open Sans', valign:'middle'});
+        sFrEval.addShape(pptx.ShapeType.rect, {x:xBarra, y:yFr+0.07, w:wBarra, h:0.22, fill:{color:'F9FAFB'}, line:{color:'E5E7EB', width:0.5}});
+        sFrEval.addShape(pptx.ShapeType.line, {x:xCentro, y:yFr+0.05, w:0, h:0.26, line:{color:'94A3B8', width:0.5}});
+        const pctL = Math.min(Math.abs(l.siVar)/escala, 1) * (wBarra/2);
+        const corL = l.siVar >= 0 ? VERDE : VERMELHO;
+        const xLBar = l.siVar >= 0 ? xCentro : xCentro - pctL;
+        sFrEval.addShape(pptx.ShapeType.rect, {x:xLBar, y:yFr+0.09, w:pctL, h:0.18, fill:{color:corL}, line:{type:'none'}});
+        const setaL = l.siVar >= 0 ? '▲' : '▼';
+        sFrEval.addText(`${setaL} ${l.siVar>=0?'+':''}${l.siVar.toFixed(1)}%`, {
+          x: l.siVar >= 0 ? xCentro + pctL + 0.1 : xCentro - pctL - 1.1,
+          y: yFr+0.07, w:1.0, h:0.22, fontSize:10, bold:true, color:corL, fontFace:'Open Sans', valign:'middle', align: l.siVar >= 0 ? 'left' : 'right'
+        });
+        sFrEval.addText(fmt(l.siAtual), {x:10.8, y:yFr+0.05, w:2.0, h:0.22, fontSize:10, color:'1E3A5F', align:'right', fontFace:'Open Sans', valign:'middle'});
+        yFr += altFr;
+      });
+    }
+
+    // ============ SLIDE: Tendência por Systane ============
+    if(rawData && rawData.length > 0){
+      const todosProds = [...new Set(rawData.map(r => r[COLS.PRODUTO]).filter(p => p))];
+      const prodsSystane = todosProds.filter(p => String(p).toUpperCase().includes('SYSTANE'));
+      if(prodsSystane.length > 0){
+        const sSyst = pptx.addSlide();
+        sSyst.background = {color: 'FFFFFF'};
+        sSyst.addText('📈 TENDÊNCIA POR SYSTANE · Últimos 12 meses', {
+          x:0.3, y:0.3, w:12.7, h:0.5, fontSize:18, bold:true, color:AZUL, fontFace:'Open Sans'
+        });
+
+        // Identificar últimos 12 meses
+        const periodosDisp = new Set();
+        for(const r of rawData){
+          const a = +r[COLS.ANO]; const m = +r[COLS.MES_NUM];
+          if(a && m) periodosDisp.add(`${a}-${String(m).padStart(2,'0')}`);
+        }
+        const periodosOrd = [...periodosDisp].sort();
+        const ultimos12 = periodosOrd.slice(-12);
+
+        const labelPer = ultimos12.length > 0
+          ? `${MESES_NOME[+ultimos12[0].split('-')[1]-1]}/${ultimos12[0].split('-')[0]} a ${MESES_NOME[+ultimos12[ultimos12.length-1].split('-')[1]-1]}/${ultimos12[ultimos12.length-1].split('-')[0]}`
+          : '';
+        sSyst.addText(`${labelPer} · ${METRICAS[metricaAtual].label} · Filtros: cliente + franquia`, {
+          x:0.3, y:0.8, w:12.7, h:0.3, fontSize:11, italic:true, color:CINZA, fontFace:'Open Sans'
+        });
+
+        // Filtros (cliente, franquia)
+        const franquiasSetSy = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
+        const tipoSetSy = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
+        const clienteSetSy = clientesSelecionados.length ? new Set(clientesSelecionados) : null;
+        const fontesSetSy = fontesSelecionadas.length ? new Set(fontesSelecionadas) : null;
+
+        // Agregar
+        const aggProdSy = {};
+        for(const p of prodsSystane) aggProdSy[p] = new Array(12).fill(0);
+        const idxMapSy = {};
+        ultimos12.forEach((k, i) => { idxMapSy[k] = i; });
+
+        for(const r of rawData){
+          const prod = r[COLS.PRODUTO];
+          if(!prodsSystane.includes(prod)) continue;
+          if(fontesSetSy && !fontesSetSy.has(String(r[COLS.FONTE]))) continue;
+          if(franquiasSetSy && !franquiasSetSy.has(String(r[COLS.FRANQUIA]))) continue;
+          if(tipoSetSy && !tipoSetSy.has(r[COLS.TIPO_CLIENTE])) continue;
+          if(clienteSetSy && !clienteSetSy.has(r[COLS.CLIENTE])) continue;
+          const k = `${r[COLS.ANO]}-${String(r[COLS.MES_NUM]).padStart(2,'0')}`;
+          if(!(k in idxMapSy)) continue;
+          aggProdSy[prod][idxMapSy[k]] += getValor(r);
+        }
+
+        const prodsComDado = prodsSystane.filter(p => aggProdSy[p].some(v => v > 0));
+
+        if(prodsComDado.length === 0){
+          sSyst.addText('Sem dados de Systane para os filtros aplicados.', {
+            x:0.5, y:3.5, w:12.5, h:0.5, fontSize:14, italic:true, color:CINZA, align:'center', fontFace:'Open Sans'
+          });
+        } else {
+          // Gerar grid 2 colunas
+          const nProds = Math.min(prodsComDado.length, 4);
+          const cols = Math.min(nProds, 2);
+          const rows = Math.ceil(nProds / cols);
+          const wMini = (12.7 - 0.5) / cols;
+          const hMini = Math.min(2.6, (7.0 - 1.3) / rows);
+          const corPaleta = [AZUL, VERDE, '#F59E0B', '#8B5CF6'];
+
+          prodsComDado.slice(0, 4).forEach((prod, idx) => {
+            const col = idx % cols;
+            const row = Math.floor(idx / cols);
+            const xM = 0.3 + col * wMini;
+            const yM = 1.3 + row * hMini;
+            const cor = corPaleta[idx % corPaleta.length].replace('#', '');
+
+            // Caixa
+            sSyst.addShape(pptx.ShapeType.rect, {x:xM, y:yM, w:wMini-0.1, h:hMini-0.15, fill:{color:'FFFFFF'}, line:{color:'E5E7EB', width:1}});
+
+            const dadosP = aggProdSy[prod];
+            const total12 = dadosP.reduce((s,v) => s+v, 0);
+
+            // Header
+            sSyst.addText(prod, {x:xM+0.1, y:yM+0.08, w:wMini-0.3, h:0.3, fontSize:12, bold:true, color:'1E3A5F', fontFace:'Open Sans'});
+            sSyst.addText(`Total: ${fmt(total12)}`, {x:xM+0.1, y:yM+0.35, w:wMini-0.3, h:0.2, fontSize:10, color:CINZA, fontFace:'Open Sans'});
+
+            // Gráfico de linha (usando chart nativo do PPTX)
+            const labelsM = ultimos12.map(k => {
+              const m = +k.split('-')[1];
+              return MESES_NOME[m-1];
+            });
+            sSyst.addChart(pptx.ChartType.line, [
+              { name: prod, labels: labelsM, values: dadosP }
+            ], {
+              x:xM+0.1, y:yM+0.6, w:wMini-0.3, h:hMini-0.85,
+              chartColors: [cor],
+              showLegend: false,
+              showCatAxisTitle: false,
+              showValAxisTitle: false,
+              catAxisHidden: false,
+              valAxisHidden: true,
+              lineSize: 3,
+              lineSmooth: true,
+              dataLabelFontSize: 8,
+              catAxisLabelFontSize: 7
+            });
+          });
+        }
+      }
+    }
+
+    // ============ SLIDE: SI vs SO Diferença (últimos 12 meses) ============
+    if(rawData && rawData.length > 0 && rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
+      const sDiff = pptx.addSlide();
+      sDiff.background = {color: 'FFFFFF'};
+      sDiff.addText('🔀 SELL-IN vs SELL-OUT · Diferença · Últimos 12 meses', {
+        x:0.3, y:0.3, w:12.7, h:0.5, fontSize:18, bold:true, color:AZUL, fontFace:'Open Sans'
+      });
+
+      // Filtros
+      const clienteSetD = clientesSelecionados.length ? new Set(clientesSelecionados) : null;
+      const produtoSetD = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
+      const produtoSetNormD = produtoSetD ? construirSetProdutosNorm(produtoSetD) : null;
+      const franquiasSetD = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
+      const tipoSetD = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
+      const fontesSetD = fontesSelecionadas.length ? new Set(fontesSelecionadas) : null;
+
+      // Últimos 12 meses M-2
+      const ultMesD = selloutUltimoPeriodo;
+      const ultimos12D = [];
+      let aD = ultMesD.ano, mD = ultMesD.mes;
+      for(let i = 0; i < 12; i++){
+        ultimos12D.unshift({ano: aD, mes: mD, key: `${aD}-${String(mD).padStart(2,'0')}`});
+        mD--;
+        if(mD < 1){ mD = 12; aD--; }
+      }
+      const idxMapD = {};
+      ultimos12D.forEach((p, i) => { idxMapD[p.key] = i; });
+
+      const siD = new Array(12).fill(0);
+      const soD = new Array(12).fill(0);
+
+      for(const r of rawData){
+        if(fontesSetD && !fontesSetD.has(String(r[COLS.FONTE]))) continue;
+        if(franquiasSetD && !franquiasSetD.has(String(r[COLS.FRANQUIA]))) continue;
+        if(tipoSetD && !tipoSetD.has(r[COLS.TIPO_CLIENTE])) continue;
+        if(clienteSetD && !clienteSetD.has(r[COLS.CLIENTE])) continue;
+        if(produtoSetD && !produtoSetD.has(r[COLS.PRODUTO])) continue;
+        const k = `${r[COLS.ANO]}-${String(r[COLS.MES_NUM]).padStart(2,'0')}`;
+        if(!(k in idxMapD)) continue;
+        siD[idxMapD[k]] += getValor(r);
+      }
+      for(const r of rawDataSellout){
+        if(!selloutCanalOk(r)) continue;
+        if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
+        if(franquiasSetD && !_franquiaCI(r.FRANQUIA, franquiasSetD)) continue;
+        if(tipoSetD && !tipoSetD.has(r.TIPO_CLIENTE)) continue;
+        if(produtoSetNormD && !produtoBateFiltro(r.PRODUTO, produtoSetNormD)) continue;
+        const k = `${r.ANO}-${String(r.MES).padStart(2,'0')}`;
+        if(!(k in idxMapD)) continue;
+        soD[idxMapD[k]] += getValorSO(r);
+      }
+
+      const labelInicio = `${MESES_NOME[ultimos12D[0].mes-1]}/${ultimos12D[0].ano}`;
+      const labelFim = `${MESES_NOME[ultimos12D[11].mes-1]}/${ultimos12D[11].ano}`;
+      sDiff.addText(`${labelInicio} a ${labelFim} · ${METRICAS[metricaAtual].label} · Filtros: cliente + produto`, {
+        x:0.3, y:0.8, w:12.7, h:0.3, fontSize:11, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
+
+      const labels = ultimos12D.map(p => `${MESES_NOME[p.mes-1]}/${String(p.ano).slice(-2)}`);
+
+      sDiff.addChart(pptx.ChartType.line, [
+        { name: '🏭 Sell-in', labels: labels, values: siD },
+        { name: '🏪 Sell-out', labels: labels, values: soD }
+      ], {
+        x:0.5, y:1.3, w:12.3, h:5.5,
+        chartColors: ['1E40AF', '059669'],
+        showLegend: true,
+        legendPos: 't',
+        showTitle: false,
+        catAxisLabelFontSize: 9,
+        valAxisLabelFontSize: 9,
+        lineSize: 3,
+        lineSmooth: true
+      });
+
+      // Análise de gap
+      const gapTotal = siD.reduce((s,v) => s+v, 0) - soD.reduce((s,v) => s+v, 0);
+      const sinalGap = gapTotal >= 0 ? '+' : '-';
+      const tipoGap = gapTotal >= 0 ? 'SI > SO (estoque empurrado)' : 'SO > SI (demanda forte)';
+      sDiff.addShape(pptx.ShapeType.rect, {x:0.3, y:6.95, w:12.7, h:0.4, fill:{color:'FEF3C7'}, line:{color:'D97706', width:1}});
+      sDiff.addText([
+        {text:'💡 Gap total 12m: ', options:{fontSize:11, bold:true, color:'92400E'}},
+        {text:`${sinalGap}${fmt(Math.abs(gapTotal))}`, options:{fontSize:13, bold:true, color: gapTotal >= 0 ? VERMELHO : VERDE}},
+        {text: ` · ${tipoGap}`, options:{fontSize:10, italic:true, color:'78350F'}}
+      ], {x:0.5, y:6.99, w:12.5, h:0.32, valign:'middle'});
+    }
+
+    // ============ SLIDE: Movers (Franquia: onde estava → onde está) ============
+    {
+      const sMovers = pptx.addSlide();
+      sMovers.background = {color: 'FFFFFF'};
+      sMovers.addText('🚀 MOVERS · Onde estava → Onde está', {
+        x:0.3, y:0.3, w:12.7, h:0.5, fontSize:18, bold:true, color:AZUL, fontFace:'Open Sans'
+      });
+      sMovers.addText(`${per.labelComp || 'Comparado'} vs ${per.labelAtual || 'Atual'} · ${METRICAS[metricaAtual].label} · Análise por Franquia`, {
+        x:0.3, y:0.8, w:12.7, h:0.3, fontSize:11, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
+
+      // Agregar por franquia
+      const periodoAtualSetM = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
+      const periodoCompSetM = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
+      const aggFrM = {};
+      for(const r of base){
+        const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+        const fr = r[COLS.FRANQUIA] || '—';
+        if(!aggFrM[fr]) aggFrM[fr] = {atual:0, comp:0};
+        const v = getValor(r);
+        if(periodoAtualSetM.has(k)) aggFrM[fr].atual += v;
+        if(periodoCompSetM.has(k)) aggFrM[fr].comp += v;
+      }
+
+      const franquiasM = Object.keys(aggFrM).sort((a,b) => aggFrM[b].atual - aggFrM[a].atual);
+
+      // Gerar chart de linha com 2 pontos
+      const chartData = franquiasM.map(fr => ({
+        name: fr,
+        labels: [per.labelComp || 'Comparado', per.labelAtual || 'Atual'],
+        values: [aggFrM[fr].comp, aggFrM[fr].atual]
+      }));
+
+      const coresMov = ['3B82F6','10B981','F59E0B','8B5CF6','EC4899','06B6D4','84CC16'];
+      sMovers.addChart(pptx.ChartType.line, chartData, {
+        x:0.5, y:1.3, w:12.3, h:5.7,
+        chartColors: coresMov.slice(0, franquiasM.length),
+        showLegend: true,
+        legendPos: 'r',
+        showTitle: false,
+        catAxisLabelFontSize: 11,
+        valAxisLabelFontSize: 9,
+        lineSize: 3,
+        showValue: true,
+        dataLabelFontSize: 10,
+        dataLabelFontBold: true,
+        dataLabelPosition: 'r',
+        dataLabelFormatCode: '#,##0'
       });
     }
 
