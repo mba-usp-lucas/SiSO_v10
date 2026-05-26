@@ -4284,9 +4284,12 @@ function renderTendenciaSystane(){
   const card = document.getElementById('tendenciaSystaneCard');
   if(!card || !rawData || rawData.length === 0) return;
 
-  // Identificar produtos Systane
+  // Identificar produtos Systane (exceto LID WIPES, que não é Systane principal)
   const todosProdutos = [...new Set(rawData.map(r => r[COLS.PRODUTO]).filter(p => p))];
-  const produtosSystane = todosProdutos.filter(p => String(p).toUpperCase().includes('SYSTANE'));
+  const produtosSystane = todosProdutos.filter(p => {
+    const up = String(p).toUpperCase();
+    return up.includes('SYSTANE') && !up.includes('LID WIPES') && !up.includes('LID-WIPES') && !up.includes('LIDWIPES');
+  });
 
   if(produtosSystane.length === 0){
     card.style.display = 'none';
@@ -7778,42 +7781,43 @@ async function exportPPTX(){
        so: soKpi ? {label:`Sell-out · YTD ${soKpi.ultMes.ano}`, valor:`${soKpi.ytdPct>=0?'+':'-'}${Math.abs(soKpi.ytdPct).toFixed(1)}%`, varPct:soKpi.ytdPct} : null}
     ];
 
-    const cardHeight = soKpi ? 2.3 : 1.5;  // Card maior se tem sell-out
+    const cardHeight = soKpi ? 2.6 : 1.5;  // Card maior se tem sell-out (aumentado pra acomodar valor SO igual ao SI)
     kpis.forEach((kpi, i) => {
       const x = 0.3 + i*3.2;
       // Card principal
       s2.addShape('rect', {x, y:0.9, w:3.0, h:cardHeight, fill:{color:BRANCO}, line:{color:kpi.cor, width:1}});
       s2.addShape('rect', {x, y:0.9, w:0.08, h:cardHeight, fill:{color:kpi.cor}, line:{color:kpi.cor}});
-      // SELL-IN (parte de cima)
+      // SELL-IN (parte de cima) com ícone fábrica
       s2.addShape('rect', {x:x+0.15, y:0.95, w:0.3, h:0.3, fill:{color:'003595'}, line:{color:'003595'}});
-      s2.addText('↘', {x:x+0.15, y:0.95, w:0.3, h:0.3, fontSize:14, bold:true, color:BRANCO, align:'center', valign:'middle'});
-      s2.addText('Sell-in · ' + kpi.label, {x:x+0.5, y:0.92, w:2.5, h:0.3, fontSize:9, color:CINZA, bold:true});
+      s2.addText('🏭', {x:x+0.15, y:0.95, w:0.3, h:0.3, fontSize:13, bold:true, color:BRANCO, align:'center', valign:'middle'});
+      s2.addText('Sell-in · ' + kpi.label, {x:x+0.5, y:0.92, w:2.5, h:0.3, fontSize:9, color:'003595', bold:true});
       s2.addText(kpi.valor, {x:x+0.2, y:1.25, w:2.8, h:0.55, fontSize:20, bold:true, color:AZUL_ESCURO});
       s2.addText(kpi.sub, {x:x+0.2, y:1.8, w:2.8, h:0.25, fontSize:9, color:CINZA});
 
-      // SELL-OUT (parte de baixo, se disponível)
+      // SELL-OUT (parte de baixo, se disponível) - FONTES IGUAIS AO SI
       if(kpi.so){
         // Linha divisória
         s2.addShape('line', {x:x+0.15, y:2.1, w:2.7, h:0, line:{color:'E5E7EB', width:1}});
-        // Ícone sell-out
-        s2.addShape('rect', {x:x+0.15, y:2.18, w:0.3, h:0.3, fill:{color:'DBEAFE'}, line:{color:'DBEAFE'}});
-        s2.addText('↗', {x:x+0.15, y:2.18, w:0.3, h:0.3, fontSize:14, bold:true, color:'1E40AF', align:'center', valign:'middle'});
-        s2.addText(kpi.so.label, {x:x+0.5, y:2.16, w:2.5, h:0.25, fontSize:8, color:'1E40AF', bold:true});
-        s2.addText(kpi.so.valor, {x:x+0.2, y:2.45, w:2.0, h:0.4, fontSize:14, bold:true, color:'1E40AF'});
+        // Ícone sell-out (farmácia/loja) - mesma altura/largura do SI
+        s2.addShape('rect', {x:x+0.15, y:2.18, w:0.3, h:0.3, fill:{color:'003595'}, line:{color:'003595'}});
+        s2.addText('🏪', {x:x+0.15, y:2.18, w:0.3, h:0.3, fontSize:13, bold:true, color:BRANCO, align:'center', valign:'middle'});
+        // Label SO (mesmo tamanho do SI)
+        s2.addText('Sell-out · ' + kpi.so.label, {x:x+0.5, y:2.15, w:2.5, h:0.3, fontSize:9, color:'003595', bold:true});
+        // Valor SO (MESMO tamanho do SI: fontSize 20)
+        s2.addText(kpi.so.valor, {x:x+0.2, y:2.48, w:2.8, h:0.55, fontSize:20, bold:true, color:AZUL_ESCURO});
         // Badge variação
         const corVar = kpi.so.varPct >= 0 ? VERDE : VERMELHO;
         const sinalSeta = kpi.so.varPct >= 0 ? '▲' : '▼';
         if(!String(kpi.so.valor).includes('%')){
-          // Se valor não tem %, adiciona variação ao lado
           s2.addText(`${sinalSeta} ${kpi.so.varPct>=0?'+':'-'}${Math.abs(kpi.so.varPct).toFixed(1)}%`, {
-            x:x+1.95, y:2.5, w:1.0, h:0.3, fontSize:10, bold:true, color: corVar, align:'right'
+            x:x+0.2, y:3.03, w:2.8, h:0.25, fontSize:9, bold:true, color: corVar, align:'left'
           });
         }
       }
     });
 
     // Benchmark se houver cliente filtrado
-    const yBench = soKpi ? 3.4 : 2.6;
+    const yBench = soKpi ? 3.7 : 2.6;
     if(clienteSelecionado && mapClienteTipo[clienteSelecionado] && mapClienteTipo[clienteSelecionado] !== '—' && mapClienteTipo[clienteSelecionado] !== '-'){
       const tipoDoCliente = mapClienteTipo[clienteSelecionado];
       const baseBenchmark = filtrarBaseSemCliente().filter(r => r[COLS.TIPO_CLIENTE] === tipoDoCliente);
@@ -7858,6 +7862,69 @@ async function exportPPTX(){
     } else {
       s2.addText('ℹ️ Benchmark indisponível: aplique filtro de cliente específico para visualizar.', {
         x:0.3, y:yBench+0.1, w:12.7, h:0.5, fontSize:12, italic:true, color:CINZA, align:'center', fill:{color:'F8FAFC'}, valign:'middle', margin:8
+      });
+    }
+
+    // ============================================================
+    // ANÁLISE POR FRANQUIA YoY (movido do slide 17 para o slide 2)
+    // ============================================================
+    if(window.__franquiaResultado && window.__franquiaResultado.length > 0){
+      const linhasFr_s2 = window.__franquiaResultado;
+      const yFrSec = soKpi ? 5.4 : 4.7;  // posição após benchmark
+      s2.addText('📊 Análise por Franquia · Variação YoY', {
+        x:0.3, y:yFrSec, w:12.7, h:0.35, fontSize:14, bold:true, color:AZUL, fontFace:'Open Sans'
+      });
+
+      const totalAtualFr_s2 = linhasFr_s2.reduce((s,l) => s+l.siAtual, 0);
+      const totalCompFr_s2 = linhasFr_s2.reduce((s,l) => s+l.siComp, 0);
+      const totalVarFr_s2 = totalCompFr_s2 > 0 ? ((totalAtualFr_s2 - totalCompFr_s2)/totalCompFr_s2*100) : 0;
+      const maxAbsVar_s2 = Math.max(Math.abs(totalVarFr_s2), ...linhasFr_s2.map(l => Math.abs(l.siVar)), 50);
+      const escala_s2 = Math.ceil(maxAbsVar_s2 / 10) * 10;
+
+      // Header com escala
+      s2.addText(`← ${escala_s2}% queda`, {x:2.5, y:yFrSec+0.38, w:2, h:0.18, fontSize:8, color:VERMELHO, italic:true, fontFace:'Open Sans'});
+      s2.addText('0%', {x:6.4, y:yFrSec+0.38, w:0.5, h:0.18, fontSize:8, bold:true, color:CINZA, align:'center', fontFace:'Open Sans'});
+      s2.addText(`+${escala_s2}% crescimento →`, {x:8.5, y:yFrSec+0.38, w:2.5, h:0.18, fontSize:8, color:VERDE, italic:true, fontFace:'Open Sans', align:'right'});
+
+      // Barras compactas
+      const xBarra_s2 = 2.0, wBarra_s2 = 8.5;
+      const xCentro_s2 = xBarra_s2 + wBarra_s2/2;
+      const altLinha_s2 = 0.27;
+      let yL_s2 = yFrSec + 0.6;
+
+      // TOTAL BRASIL primeiro (destaque)
+      s2.addShape('rect', {x:0.3, y:yL_s2, w:12.7, h:altLinha_s2+0.05, fill:{color:'EFF6FF'}, line:{color:AZUL, width:0.5}});
+      s2.addText('🇧🇷 TOTAL BRASIL', {x:0.4, y:yL_s2+0.02, w:1.6, h:altLinha_s2, fontSize:10, bold:true, color:AZUL, fontFace:'Open Sans', valign:'middle'});
+      s2.addShape('rect', {x:xBarra_s2, y:yL_s2+0.05, w:wBarra_s2, h:altLinha_s2-0.05, fill:{color:'F3F4F6'}, line:{color:'E5E7EB', width:0.3}});
+      s2.addShape('line', {x:xCentro_s2, y:yL_s2+0.03, w:0, h:altLinha_s2-0.01, line:{color:'94A3B8', width:1}});
+      const pctTotal_s2 = Math.min(Math.abs(totalVarFr_s2)/escala_s2, 1) * (wBarra_s2/2);
+      const corTotal_s2 = totalVarFr_s2 >= 0 ? VERDE : VERMELHO;
+      const xTotBar_s2 = totalVarFr_s2 >= 0 ? xCentro_s2 : xCentro_s2 - pctTotal_s2;
+      s2.addShape('rect', {x:xTotBar_s2, y:yL_s2+0.07, w:Math.max(pctTotal_s2, 0.03), h:altLinha_s2-0.09, fill:{color:corTotal_s2}, line:{type:'none'}});
+      s2.addText(`${totalVarFr_s2>=0?'▲ +':'▼ '}${totalVarFr_s2.toFixed(1)}%`, {
+        x: totalVarFr_s2 >= 0 ? xCentro_s2 + pctTotal_s2 + 0.05 : xCentro_s2 - pctTotal_s2 - 0.95,
+        y: yL_s2+0.04, w:0.9, h:altLinha_s2, fontSize:9, bold:true, color:corTotal_s2, fontFace:'Open Sans', valign:'middle', align: totalVarFr_s2 >= 0 ? 'left' : 'right'
+      });
+      s2.addText(fmt(totalAtualFr_s2), {x:10.9, y:yL_s2+0.04, w:1.9, h:altLinha_s2, fontSize:10, bold:true, color:AZUL, align:'right', fontFace:'Open Sans', valign:'middle'});
+      yL_s2 += altLinha_s2 + 0.08;
+
+      // Franquias
+      linhasFr_s2.forEach(l => {
+        if(yL_s2 > 7.2) return; // limite slide
+        s2.addText(l.franquia, {x:0.4, y:yL_s2, w:1.6, h:altLinha_s2, fontSize:9, bold:true, color:'1E3A5F', fontFace:'Open Sans', valign:'middle'});
+        s2.addShape('rect', {x:xBarra_s2, y:yL_s2+0.03, w:wBarra_s2, h:altLinha_s2-0.06, fill:{color:'F9FAFB'}, line:{color:'E5E7EB', width:0.3}});
+        s2.addShape('line', {x:xCentro_s2, y:yL_s2+0.01, w:0, h:altLinha_s2-0.02, line:{color:'94A3B8', width:0.5}});
+        const pctL_s2 = Math.min(Math.abs(l.siVar)/escala_s2, 1) * (wBarra_s2/2);
+        const corL_s2 = l.siVar >= 0 ? VERDE : VERMELHO;
+        const xLBar_s2 = l.siVar >= 0 ? xCentro_s2 : xCentro_s2 - pctL_s2;
+        s2.addShape('rect', {x:xLBar_s2, y:yL_s2+0.05, w:Math.max(pctL_s2, 0.02), h:altLinha_s2-0.1, fill:{color:corL_s2}, line:{type:'none'}});
+        const setaL_s2 = l.siVar >= 0 ? '▲' : '▼';
+        s2.addText(`${setaL_s2} ${l.siVar>=0?'+':''}${l.siVar.toFixed(1)}%`, {
+          x: l.siVar >= 0 ? xCentro_s2 + pctL_s2 + 0.05 : xCentro_s2 - pctL_s2 - 0.95,
+          y: yL_s2+0.02, w:0.9, h:altLinha_s2-0.04, fontSize:9, bold:true, color:corL_s2, fontFace:'Open Sans', valign:'middle', align: l.siVar >= 0 ? 'left' : 'right'
+        });
+        s2.addText(fmt(l.siAtual), {x:10.9, y:yL_s2+0.02, w:1.9, h:altLinha_s2-0.04, fontSize:9, color:'1E3A5F', align:'right', fontFace:'Open Sans', valign:'middle'});
+        yL_s2 += altLinha_s2;
       });
     }
 
@@ -8307,17 +8374,159 @@ async function exportPPTX(){
     }
 
     // ============================================================
-    // SLIDE 4 - INSIGHTS AUTOMÁTICOS — isolado
+    // SLIDES INSIGHT RÁPIDO - 2 slides (DE&OH+CLC e PHARMA)
     // ============================================================
-    const s3 = pptx.addSlide();
-    addHeader(s3, '💡 Insights Automáticos');
-    const insightsEls = document.querySelectorAll('#insightsList li');
-    const insightsTxt = [...insightsEls].map(el => el.textContent.trim());
-    const insightsBullets = insightsTxt.slice(0, 18).map(t => ({text: t, options:{bullet:true, fontSize:13, color:'1E3A5F', paraSpaceAfter:8}}));
-    s3.addText(insightsBullets, {
-      x:0.5, y:1.0, w:12.3, h:5.8,
-      fill:{color:'EBF4FB'}, valign:'top', margin:18, line:{color:'003595', width:1}
-    });
+    // Helper: gera insights para um conjunto específico de franquias
+    function gerarInsightsParaFranquias(franquiasIncluidas, tituloAgrupamento, baseFiltrada){
+      const ins = [];
+      // Performance multi-métrica
+      function somarMetricaFr(dados, periodo, col){
+        const set = new Set(periodo.map(p => `${p.ano}-${p.mes}`));
+        let total = 0;
+        for(const r of dados){
+          const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+          if(set.has(k)) total += (+r[col] || 0);
+        }
+        return total;
+      }
+      const unidA = somarMetricaFr(baseFiltrada, per.periodoAtual, COLS.VALOR_UNID);
+      const unidC = somarMetricaFr(baseFiltrada, per.periodoComp, COLS.VALOR_UNID);
+      const brlA = somarMetricaFr(baseFiltrada, per.periodoAtual, COLS.VALOR_BRL);
+      const brlC = somarMetricaFr(baseFiltrada, per.periodoComp, COLS.VALOR_BRL);
+      const unidV = unidC ? ((unidA - unidC) / unidC * 100) : 0;
+      const brlV = brlC ? ((brlA - brlC) / brlC * 100) : 0;
+      const valA = metricaAtual === 'UNID' ? unidA : (metricaAtual === 'BRL' ? brlA : somarMetricaFr(baseFiltrada, per.periodoAtual, COLS.VALOR_USD));
+      const valC = metricaAtual === 'UNID' ? unidC : (metricaAtual === 'BRL' ? brlC : somarMetricaFr(baseFiltrada, per.periodoComp, COLS.VALOR_USD));
+      const varPct = valC ? ((valA - valC) / valC * 100) : 0;
+
+      // Driver
+      let driverTxt = '';
+      if(Math.abs(unidV) > 0.5 && Math.abs(brlV) > 0.5){
+        const gap = brlV - unidV;
+        if(Math.abs(gap) < 2) driverTxt = ' Crescimento equilibrado entre volume e preço.';
+        else if(gap > 2) driverTxt = ` Driver: preço/mix (BRL +${Math.abs(gap).toFixed(1)}pp acima de UNID).`;
+        else driverTxt = ` Driver: volume (UNID +${Math.abs(gap).toFixed(1)}pp acima de BRL).`;
+      }
+      const intensidade = Math.abs(varPct) > 15 ? 'acelerado' : (Math.abs(varPct) > 5 ? 'moderado' : 'leve');
+      const direcao = varPct >= 0 ? 'crescimento' : 'queda';
+      ins.push(`📈 Performance: ${intensidade} ${direcao} de ${varPct>=0?'+':''}${varPct.toFixed(1)}% em ${mLabel} (UNID ${unidV>=0?'+':''}${unidV.toFixed(1)}% · BRL ${brlV>=0?'+':''}${brlV.toFixed(1)}%) vs ${per.labelComp}.${driverTxt}`);
+
+      // Concentração - Top 5 clientes
+      const aggCli = {};
+      const setAtual = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
+      const setComp = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
+      for(const r of baseFiltrada){
+        const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+        const c = r[COLS.CLIENTE];
+        if(!aggCli[c]) aggCli[c] = {a:0, c:0};
+        const v = +r[COLS.VALOR_BRL] || 0;
+        if(setAtual.has(k)) aggCli[c].a += v;
+        if(setComp.has(k)) aggCli[c].c += v;
+      }
+      const totalA = Object.values(aggCli).reduce((s, x) => s+x.a, 0);
+      const top5 = Object.entries(aggCli).map(([n,a]) => ({n, a:a.a, c:a.c})).sort((a,b) => b.a-a.a).slice(0,5);
+      const concPct = totalA > 0 ? (top5.reduce((s,x) => s+x.a, 0)/totalA*100) : 0;
+      const concIcon = concPct >= 80 ? '⚠️' : '📊';
+      ins.push(`${concIcon} Concentração: Top 5 clientes = <b>${concPct.toFixed(1)}%</b> do faturamento.`);
+
+      // Variação por franquia individual (dentro do grupo)
+      if(franquiasIncluidas.length > 1){
+        franquiasIncluidas.forEach(fr => {
+          const baseDaFr = baseFiltrada.filter(r => String(r[COLS.FRANQUIA]) === fr);
+          if(baseDaFr.length === 0) return;
+          const vA = somarMetricaFr(baseDaFr, per.periodoAtual, metricaAtual === 'UNID' ? COLS.VALOR_UNID : COLS.VALOR_BRL);
+          const vC = somarMetricaFr(baseDaFr, per.periodoComp, metricaAtual === 'UNID' ? COLS.VALOR_UNID : COLS.VALOR_BRL);
+          const vPct = vC ? ((vA - vC) / vC * 100) : 0;
+          const icon = vPct > 5 ? '✅' : vPct >= 0 ? '🟢' : vPct > -5 ? '🟡' : vPct > -15 ? '⚠️' : '🚨';
+          const seta = vPct >= 0 ? '▲' : '▼';
+          ins.push(`${icon} <b>${fr}:</b> ${seta} ${vPct>=0?'+':''}${vPct.toFixed(1)}% (Atual: ${fmt(vA)})`);
+        });
+      }
+
+      // Top alavanca e ofensor
+      const linhasCli = Object.entries(aggCli).map(([n,a]) => ({n, dAbs: a.a - a.c}));
+      const topPos = linhasCli.filter(r => r.dAbs > 0).sort((a,b) => b.dAbs - a.dAbs)[0];
+      const topNeg = linhasCli.filter(r => r.dAbs < 0).sort((a,b) => a.dAbs - b.dAbs)[0];
+      if(topPos) ins.push(`🚀 Maior alavanca: <b>${topPos.n}</b> (+${fmt(topPos.dAbs)}).`);
+      if(topNeg) ins.push(`🔴 Maior ofensor: <b>${topNeg.n}</b> (-${fmt(Math.abs(topNeg.dAbs))}).`);
+
+      // Decomposição (se relevante)
+      if(metricaAtual !== 'UNID' && window.__decompResultado){
+        const d = window.__decompResultado;
+        const totalAbs = Math.abs(d.totalVolume) + Math.abs(d.totalPreco) + Math.abs(d.totalMix);
+        if(totalAbs > 0){
+          const pctV = (Math.abs(d.totalVolume) / totalAbs * 100);
+          const pctP = (Math.abs(d.totalPreco) / totalAbs * 100);
+          const pctM = (Math.abs(d.totalMix) / totalAbs * 100);
+          ins.push(`🔍 Decomposição (BRL): Volume ${pctV.toFixed(0)}% · Preço ${pctP.toFixed(0)}% · Mix ${pctM.toFixed(0)}%.`);
+        }
+      }
+
+      return ins;
+    }
+
+    // Detectar franquias disponíveis
+    const todasFranquiasS3 = window.__franquiaResultado
+      ? window.__franquiaResultado.map(l => l.franquia)
+      : [...new Set(base.map(r => String(r[COLS.FRANQUIA] || '')).filter(f => f))];
+
+    // Separar em PHARMA vs OUTRAS (DE&OH, CLC, etc.)
+    const isPharma = (fr) => String(fr).toUpperCase().includes('PHARMA');
+    const franquiasPharma = todasFranquiasS3.filter(isPharma);
+    const franquiasOutras = todasFranquiasS3.filter(fr => !isPharma(fr));
+
+    // === SLIDE A: Insight Rápido · MACRO (DE&OH + CLC + outras não-PHARMA) ===
+    if(franquiasOutras.length > 0){
+      const s3a = pptx.addSlide();
+      const nomeGrupoA = franquiasOutras.join(' + ');
+      addHeader(s3a, `💡 Insight Rápido · ${nomeGrupoA}`);
+      const baseFiltradaA = base.filter(r => franquiasOutras.includes(String(r[COLS.FRANQUIA])));
+      const insightsA = gerarInsightsParaFranquias(franquiasOutras, nomeGrupoA, baseFiltradaA);
+      const bulletsA = insightsA.map(t => ({
+        text: t.replace(/<\/?b>/g, ''),
+        options:{bullet:true, fontSize:13, color:'1E3A5F', paraSpaceAfter:8}
+      }));
+      s3a.addText(bulletsA, {
+        x:0.5, y:1.0, w:12.3, h:5.8,
+        fill:{color:'EBF4FB'}, valign:'top', margin:18, line:{color:'003595', width:1}
+      });
+      // Footer
+      s3a.addText(`Franquias incluídas: ${franquiasOutras.join(', ')} · ${per.labelAtual} vs ${per.labelComp || 'YA'}`, {
+        x:0.5, y:6.95, w:12.3, h:0.3, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
+    }
+
+    // === SLIDE B: Insight Rápido · PHARMA ===
+    if(franquiasPharma.length > 0){
+      const s3b = pptx.addSlide();
+      addHeader(s3b, `💡 Insight Rápido · ${franquiasPharma.join(' + ')}`);
+      const baseFiltradaB = base.filter(r => franquiasPharma.includes(String(r[COLS.FRANQUIA])));
+      const insightsB = gerarInsightsParaFranquias(franquiasPharma, franquiasPharma.join('+'), baseFiltradaB);
+      const bulletsB = insightsB.map(t => ({
+        text: t.replace(/<\/?b>/g, ''),
+        options:{bullet:true, fontSize:13, color:'1E3A5F', paraSpaceAfter:8}
+      }));
+      s3b.addText(bulletsB, {
+        x:0.5, y:1.0, w:12.3, h:5.8,
+        fill:{color:'EBF4FB'}, valign:'top', margin:18, line:{color:'003595', width:1}
+      });
+      s3b.addText(`Franquias incluídas: ${franquiasPharma.join(', ')} · ${per.labelAtual} vs ${per.labelComp || 'YA'}`, {
+        x:0.5, y:6.95, w:12.3, h:0.3, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
+    }
+
+    // Fallback: se não detectou PHARMA nem OUTRAS, gera slide único genérico (compat com dados sem franquias)
+    if(franquiasOutras.length === 0 && franquiasPharma.length === 0){
+      const s3 = pptx.addSlide();
+      addHeader(s3, '💡 Insight Rápido');
+      const insightsEls = document.querySelectorAll('#insightsList li');
+      const insightsTxt = [...insightsEls].map(el => el.textContent.trim());
+      const insightsBullets = insightsTxt.slice(0, 18).map(t => ({text: t, options:{bullet:true, fontSize:13, color:'1E3A5F', paraSpaceAfter:8}}));
+      s3.addText(insightsBullets, {
+        x:0.5, y:1.0, w:12.3, h:5.8,
+        fill:{color:'EBF4FB'}, valign:'top', margin:18, line:{color:'003595', width:1}
+      });
+    }
 
     // ============================================================
     // SLIDE - DECOMPOSIÇÃO DE CRESCIMENTO (só se métrica = BRL/USD)
@@ -9404,77 +9613,16 @@ async function exportPPTX(){
     // SLIDES NOVOS: Visualizações inspiradas em Chartosaur
     // ============================================================
 
-    // ============ SLIDE: Análise por Franquia (Evaluation com barras YoY) ============
-    if(window.__franquiaResultado && window.__franquiaResultado.length > 0){
-      const sFrEval = pptx.addSlide();
-      sFrEval.background = {color: 'FFFFFF'};
-      sFrEval.addText('📊 ANÁLISE POR FRANQUIA · Variação YoY', {
-        x:0.3, y:0.3, w:12.7, h:0.5, fontSize:18, bold:true, color:AZUL, fontFace:'Open Sans'
-      });
-      sFrEval.addText(`${per.labelAtual} vs ${per.labelComp || '—'} · ${METRICAS[metricaAtual].label}`, {
-        x:0.3, y:0.8, w:12.7, h:0.3, fontSize:11, italic:true, color:CINZA, fontFace:'Open Sans'
-      });
-
-      const linhasFr = window.__franquiaResultado;
-      const totalAtualFr = linhasFr.reduce((s,l) => s+l.siAtual, 0);
-      const totalCompFr = linhasFr.reduce((s,l) => s+l.siComp, 0);
-      const totalVarFr = totalCompFr > 0 ? ((totalAtualFr - totalCompFr)/totalCompFr*100) : 0;
-
-      const maxAbsVar = Math.max(Math.abs(totalVarFr), ...linhasFr.map(l => Math.abs(l.siVar)), 50);
-      const escala = Math.ceil(maxAbsVar / 10) * 10;
-
-      // Cabeçalho escala
-      sFrEval.addText(`← ${escala}% queda`, {x:0.5, y:1.3, w:3, h:0.2, fontSize:9, color:VERMELHO, italic:true, fontFace:'Open Sans'});
-      sFrEval.addText('0%', {x:6.4, y:1.3, w:0.5, h:0.2, fontSize:9, bold:true, color:CINZA, align:'center', fontFace:'Open Sans'});
-      sFrEval.addText(`+${escala}% crescimento →`, {x:9.5, y:1.3, w:3, h:0.2, fontSize:9, color:VERDE, italic:true, fontFace:'Open Sans', align:'right'});
-
-      // Total Brasil (destaque)
-      const yTotal = 1.55;
-      const xBarra = 2.0, wBarra = 8.5;
-      const xCentro = xBarra + wBarra/2;
-      sFrEval.addShape(pptx.ShapeType.rect, {x:0.3, y:yTotal, w:12.7, h:0.55, fill:{color:'EFF6FF'}, line:{color:AZUL, width:1}});
-      sFrEval.addText('🇧🇷 TOTAL BRASIL', {x:0.5, y:yTotal+0.08, w:1.6, h:0.4, fontSize:13, bold:true, color:AZUL, fontFace:'Open Sans', valign:'middle'});
-      // Fundo da barra
-      sFrEval.addShape(pptx.ShapeType.rect, {x:xBarra, y:yTotal+0.12, w:wBarra, h:0.3, fill:{color:'F3F4F6'}, line:{color:'E5E7EB', width:0.5}});
-      // Linha central
-      sFrEval.addShape(pptx.ShapeType.line, {x:xCentro, y:yTotal+0.1, w:0, h:0.34, line:{color:'94A3B8', width:1}});
-      // Barra total
-      const pctTotal = Math.min(Math.abs(totalVarFr)/escala, 1) * (wBarra/2);
-      const corTotal = totalVarFr >= 0 ? VERDE : VERMELHO;
-      const xTotalBar = totalVarFr >= 0 ? xCentro : xCentro - pctTotal;
-      sFrEval.addShape(pptx.ShapeType.rect, {x:xTotalBar, y:yTotal+0.14, w:pctTotal, h:0.26, fill:{color:corTotal}, line:{type:'none'}});
-      sFrEval.addText(`${totalVarFr>=0?'▲ +':'▼ '}${totalVarFr.toFixed(1)}%`, {
-        x: totalVarFr >= 0 ? xCentro + pctTotal + 0.1 : xCentro - pctTotal - 1.1,
-        y: yTotal+0.13, w:1.0, h:0.3, fontSize:11, bold:true, color:corTotal, fontFace:'Open Sans', valign:'middle', align: totalVarFr >= 0 ? 'left' : 'right'
-      });
-      sFrEval.addText(fmt(totalAtualFr), {x:10.8, y:yTotal+0.12, w:2.0, h:0.3, fontSize:12, bold:true, color:AZUL, align:'right', fontFace:'Open Sans', valign:'middle'});
-
-      // Cada franquia
-      let yFr = 2.25;
-      const altFr = 0.4;
-      linhasFr.forEach((l, idx) => {
-        if(yFr > 6.8) return; // limite slide
-        sFrEval.addText(l.franquia, {x:0.5, y:yFr+0.05, w:1.6, h:0.3, fontSize:11, bold:true, color:'1E3A5F', fontFace:'Open Sans', valign:'middle'});
-        sFrEval.addShape(pptx.ShapeType.rect, {x:xBarra, y:yFr+0.07, w:wBarra, h:0.22, fill:{color:'F9FAFB'}, line:{color:'E5E7EB', width:0.5}});
-        sFrEval.addShape(pptx.ShapeType.line, {x:xCentro, y:yFr+0.05, w:0, h:0.26, line:{color:'94A3B8', width:0.5}});
-        const pctL = Math.min(Math.abs(l.siVar)/escala, 1) * (wBarra/2);
-        const corL = l.siVar >= 0 ? VERDE : VERMELHO;
-        const xLBar = l.siVar >= 0 ? xCentro : xCentro - pctL;
-        sFrEval.addShape(pptx.ShapeType.rect, {x:xLBar, y:yFr+0.09, w:pctL, h:0.18, fill:{color:corL}, line:{type:'none'}});
-        const setaL = l.siVar >= 0 ? '▲' : '▼';
-        sFrEval.addText(`${setaL} ${l.siVar>=0?'+':''}${l.siVar.toFixed(1)}%`, {
-          x: l.siVar >= 0 ? xCentro + pctL + 0.1 : xCentro - pctL - 1.1,
-          y: yFr+0.07, w:1.0, h:0.22, fontSize:10, bold:true, color:corL, fontFace:'Open Sans', valign:'middle', align: l.siVar >= 0 ? 'left' : 'right'
-        });
-        sFrEval.addText(fmt(l.siAtual), {x:10.8, y:yFr+0.05, w:2.0, h:0.22, fontSize:10, color:'1E3A5F', align:'right', fontFace:'Open Sans', valign:'middle'});
-        yFr += altFr;
-      });
-    }
+    // SLIDE FRANQUIA EVALUATION: integrado no slide 2 (KPIs + Análise por Franquia)
 
     // ============ SLIDE: Tendência por Systane ============
     if(rawData && rawData.length > 0){
       const todosProds = [...new Set(rawData.map(r => r[COLS.PRODUTO]).filter(p => p))];
-      const prodsSystane = todosProds.filter(p => String(p).toUpperCase().includes('SYSTANE'));
+      // Todos os Systane EXCETO LID WIPES (não é Systane principal)
+      const prodsSystane = todosProds.filter(p => {
+        const up = String(p).toUpperCase();
+        return up.includes('SYSTANE') && !up.includes('LID WIPES') && !up.includes('LID-WIPES') && !up.includes('LIDWIPES');
+      });
       if(prodsSystane.length > 0){
         const sSyst = pptx.addSlide();
         sSyst.background = {color: 'FFFFFF'};
@@ -9529,30 +9677,30 @@ async function exportPPTX(){
             x:0.5, y:3.5, w:12.5, h:0.5, fontSize:14, italic:true, color:CINZA, align:'center', fontFace:'Open Sans'
           });
         } else {
-          // Gerar grid 2 colunas
-          const nProds = Math.min(prodsComDado.length, 4);
-          const cols = Math.min(nProds, 2);
+          // Gerar grid - até 6 produtos (3 colunas × 2 linhas pra acomodar 5-6 Systane)
+          const nProds = Math.min(prodsComDado.length, 6);
+          const cols = nProds <= 2 ? nProds : (nProds <= 4 ? 2 : 3);
           const rows = Math.ceil(nProds / cols);
-          const wMini = (12.7 - 0.5) / cols;
-          const hMini = Math.min(2.6, (7.0 - 1.3) / rows);
-          const corPaleta = [AZUL, VERDE, '#F59E0B', '#8B5CF6'];
+          const wMini = (12.7 - 0.3 * (cols + 1)) / cols;
+          const hMini = Math.min(2.7, (7.0 - 1.3) / rows);
+          const corPaleta = ['1E40AF', '059669', 'F59E0B', '8B5CF6', 'EC4899', '06B6D4'];
 
-          prodsComDado.slice(0, 4).forEach((prod, idx) => {
+          prodsComDado.slice(0, 6).forEach((prod, idx) => {
             const col = idx % cols;
             const row = Math.floor(idx / cols);
-            const xM = 0.3 + col * wMini;
-            const yM = 1.3 + row * hMini;
-            const cor = corPaleta[idx % corPaleta.length].replace('#', '');
+            const xM = 0.3 + col * (wMini + 0.2);
+            const yM = 1.3 + row * (hMini + 0.1);
+            const cor = corPaleta[idx % corPaleta.length];
 
             // Caixa
-            sSyst.addShape(pptx.ShapeType.rect, {x:xM, y:yM, w:wMini-0.1, h:hMini-0.15, fill:{color:'FFFFFF'}, line:{color:'E5E7EB', width:1}});
+            sSyst.addShape(pptx.ShapeType.rect, {x:xM, y:yM, w:wMini, h:hMini-0.1, fill:{color:'FFFFFF'}, line:{color:'E5E7EB', width:1}});
 
             const dadosP = aggProdSy[prod];
             const total12 = dadosP.reduce((s,v) => s+v, 0);
 
-            // Header
-            sSyst.addText(prod, {x:xM+0.1, y:yM+0.08, w:wMini-0.3, h:0.3, fontSize:12, bold:true, color:'1E3A5F', fontFace:'Open Sans'});
-            sSyst.addText(`Total: ${fmt(total12)}`, {x:xM+0.1, y:yM+0.35, w:wMini-0.3, h:0.2, fontSize:10, color:CINZA, fontFace:'Open Sans'});
+            // Header - nome do produto pode ser longo, fonte menor
+            sSyst.addText(prod, {x:xM+0.08, y:yM+0.06, w:wMini-0.16, h:0.28, fontSize:10, bold:true, color:'1E3A5F', fontFace:'Open Sans'});
+            sSyst.addText(`Total 12m: ${fmt(total12)}`, {x:xM+0.08, y:yM+0.32, w:wMini-0.16, h:0.18, fontSize:8.5, color:CINZA, fontFace:'Open Sans'});
 
             // Gráfico de linha (usando chart nativo do PPTX)
             const labelsM = ultimos12.map(k => {
@@ -9562,17 +9710,17 @@ async function exportPPTX(){
             sSyst.addChart(pptx.ChartType.line, [
               { name: prod, labels: labelsM, values: dadosP }
             ], {
-              x:xM+0.1, y:yM+0.6, w:wMini-0.3, h:hMini-0.85,
+              x:xM+0.05, y:yM+0.55, w:wMini-0.1, h:hMini-0.7,
               chartColors: [cor],
               showLegend: false,
               showCatAxisTitle: false,
               showValAxisTitle: false,
               catAxisHidden: false,
               valAxisHidden: true,
-              lineSize: 3,
+              lineSize: 2.5,
               lineSmooth: true,
-              dataLabelFontSize: 8,
-              catAxisLabelFontSize: 7
+              dataLabelFontSize: 7,
+              catAxisLabelFontSize: 6
             });
           });
         }
