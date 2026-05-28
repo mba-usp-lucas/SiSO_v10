@@ -745,6 +745,11 @@
   <div class="card collapsible" id="decompCard" style="display:none">
     <h3 onclick="toggleSection('decompCard')">📊 Decomposição de Crescimento · Volume × Preço × Mix <span style="font-size:11px;font-weight:300;color:var(--ink-muted);margin-left:auto" id="decompAviso"></span> <span class="toggle-icon">▼</span></h3>
     <div class="collapsible-body">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button type="button" class="btn btn-outline" onclick="exportDecomposicaoExcel()" style="font-size:12px" title="Exporta o racional detalhado (cliente × produto × cálculos) para Excel">
+          📥 Exportar racional (Excel)
+        </button>
+      </div>
       <div id="decompResumo" style="margin-bottom:16px"></div>
       <div id="decompPorProduto"></div>
     </div>
@@ -2357,6 +2362,7 @@ function renderDecomposicao(data, per){
   // Vender mais do produto caro vs barato é classificado como Mix (não Preço)
   // Resolve o "paradoxo de Simpson"
   const decompPorProduto = {};
+  const decompDetalheCliente = [];  // racional linha-a-linha (produto × cliente)
   let totalAtual = 0, totalComp = 0;
   let unidTotalAtual = 0, unidTotalComp = 0;
   let totalLancamentos = 0;
@@ -2383,18 +2389,43 @@ function renderDecomposicao(data, per){
       if(Vc > 0) temCompProd = true;
 
       // Decomposição interna do produto (cliente × preço × volume)
+      let dv = 0, dp = 0, dMix = 0, situacao = '';
       if(Qc > 0 && Qa > 0){
-        const dv = (Qa - Qc) * Pc;
-        const dp = (Pa - Pc) * Qa;
-        const dMix = (Va - Vc) - dv - dp;
+        dv = (Qa - Qc) * Pc;
+        dp = (Pa - Pc) * Qa;
+        dMix = (Va - Vc) - dv - dp;
         prodVolume += dv;
         prodPreco += dp;
         prodMix += dMix;
+        situacao = 'Recorrente';
       } else if(Qa > 0 && Qc === 0){
+        dv = Va;
         prodVolume += Va;
+        situacao = 'Novo (entrada)';
       } else if(Qa === 0 && Qc > 0){
+        dv = -Vc;
         prodVolume += -Vc;
+        situacao = 'Saída';
       }
+
+      // Guardar linha detalhada (racional)
+      decompDetalheCliente.push({
+        produto: prod,
+        cliente: cli,
+        situacao: situacao,
+        qtdComp: Qc,
+        qtdAtual: Qa,
+        deltaQtd: Qa - Qc,
+        precoComp: Pc,
+        precoAtual: Pa,
+        deltaPreco: Pa - Pc,
+        valComp: Vc,
+        valAtual: Va,
+        deltaVal: Va - Vc,
+        efeitoVolume: dv,
+        efeitoPreco: dp,
+        efeitoMix: dMix
+      });
     }
 
     decompPorProduto[prod] = {
@@ -2558,6 +2589,192 @@ function renderDecomposicao(data, per){
     porProduto: decompPorProduto,
     topProdutos: topProdutos.map(([nome, p]) => ({nome, ...p}))
   };
+
+  // Guardar detalhe linha-a-linha para exportação Excel do racional
+  window.__decompDetalhe = {
+    linhas: decompDetalheCliente,
+    meta: {
+      metrica: metricaAtual,
+      labelAtual: per.labelAtual,
+      labelComp: per.labelComp || '—',
+      pMedioGlobalComp: pMedioGlobalComp,
+      unidTotalAtual, unidTotalComp,
+      totalAtual, totalComp,
+      totalVolume, totalPreco, totalMix
+    }
+  };
+}
+
+// ============================================================
+// exportDecomposicaoExcel - Exporta o racional completo da
+// decomposição Volume × Preço × Mix para Excel (XLSX).
+// 3 abas: Resumo, Detalhe (cliente×produto×cálculos), Metodologia.
+// ============================================================
+function exportDecomposicaoExcel(){
+  if(metricaAtual === 'UNID'){
+    alert('A decomposição Volume × Preço × Mix requer métrica de receita (BRL ou USD). Troque a métrica no topo da tela.');
+    return;
+  }
+  if(!window.__decompDetalhe || !window.__decompDetalhe.linhas || window.__decompDetalhe.linhas.length === 0){
+    alert('Sem dados de decomposição. Verifique os filtros aplicados.');
+    return;
+  }
+  if(typeof XLSX === 'undefined'){
+    alert('Biblioteca de exportação (SheetJS) não carregada.');
+    return;
+  }
+
+  const d = window.__decompDetalhe;
+  const meta = d.meta;
+  const mLabel = meta.metrica;  // BRL ou USD
+  const simbolo = mLabel === 'BRL' ? 'R$' : 'US$';
+
+  // ---------- ABA 1: RESUMO ----------
+  const deltaTotal = meta.totalAtual - meta.totalComp;
+  const pctTotal = meta.totalComp > 0 ? (deltaTotal / meta.totalComp * 100) : 0;
+  const resumoAOA = [
+    ['DECOMPOSIÇÃO DE CRESCIMENTO · Volume × Preço × Mix'],
+    [],
+    ['Métrica', mLabel],
+    ['Período Atual', meta.labelAtual],
+    ['Período Comparado', meta.labelComp],
+    ['Gerado em', new Date().toLocaleString('pt-BR')],
+    [],
+    ['INDICADOR', `Valor (${simbolo})`, '% do efeito'],
+    [`Receita Período Comparado`, meta.totalComp, ''],
+    [`Receita Período Atual`, meta.totalAtual, ''],
+    [`Variação Total (Δ)`, deltaTotal, `${pctTotal.toFixed(1)}%`],
+    [],
+    ['DECOMPOSIÇÃO DO Δ TOTAL', `Valor (${simbolo})`, '% do efeito'],
+  ];
+  const totalAbs = Math.abs(meta.totalVolume) + Math.abs(meta.totalPreco) + Math.abs(meta.totalMix);
+  resumoAOA.push(['Efeito VOLUME', meta.totalVolume, totalAbs > 0 ? `${(Math.abs(meta.totalVolume)/totalAbs*100).toFixed(1)}%` : '0%']);
+  resumoAOA.push(['Efeito PREÇO', meta.totalPreco, totalAbs > 0 ? `${(Math.abs(meta.totalPreco)/totalAbs*100).toFixed(1)}%` : '0%']);
+  resumoAOA.push(['Efeito MIX', meta.totalMix, totalAbs > 0 ? `${(Math.abs(meta.totalMix)/totalAbs*100).toFixed(1)}%` : '0%']);
+  resumoAOA.push(['Soma (validação)', meta.totalVolume + meta.totalPreco + meta.totalMix, '']);
+  resumoAOA.push([]);
+  resumoAOA.push(['Preço médio global (Comp)', meta.pMedioGlobalComp, simbolo + '/unid']);
+  resumoAOA.push(['Unidades Comp', meta.unidTotalComp, '']);
+  resumoAOA.push(['Unidades Atual', meta.unidTotalAtual, '']);
+
+  // ---------- ABA 2: DETALHE (racional linha-a-linha) ----------
+  const detalheAOA = [[
+    'Produto', 'Cliente', 'Situação',
+    'Qtd Comp', 'Qtd Atual', 'Δ Qtd',
+    `Preço Comp (${simbolo})`, `Preço Atual (${simbolo})`, `Δ Preço (${simbolo})`,
+    `Receita Comp (${simbolo})`, `Receita Atual (${simbolo})`, `Δ Receita (${simbolo})`,
+    `Efeito Volume (${simbolo})`, `Efeito Preço (${simbolo})`, `Efeito Mix (${simbolo})`,
+    'Fórmula Volume', 'Fórmula Preço', 'Fórmula Mix'
+  ]];
+
+  // Ordenar por |Δ Receita| desc
+  const linhasOrd = [...d.linhas].sort((a,b) => Math.abs(b.deltaVal) - Math.abs(a.deltaVal));
+  for(const l of linhasOrd){
+    // Fórmulas textuais (racional explícito)
+    let formV = '', formP = '', formM = '';
+    if(l.situacao === 'Recorrente'){
+      formV = `(${l.qtdAtual.toFixed(0)} - ${l.qtdComp.toFixed(0)}) × ${l.precoComp.toFixed(2)}`;
+      formP = `(${l.precoAtual.toFixed(2)} - ${l.precoComp.toFixed(2)}) × ${l.qtdAtual.toFixed(0)}`;
+      formM = `ΔReceita - Volume - Preço`;
+    } else if(l.situacao === 'Novo (entrada)'){
+      formV = `Receita Atual (produto novo) = ${l.valAtual.toFixed(2)}`;
+      formP = 'n/a (sem base comparável)';
+      formM = 'n/a';
+    } else if(l.situacao === 'Saída'){
+      formV = `-Receita Comp (descontinuado) = ${(-l.valComp).toFixed(2)}`;
+      formP = 'n/a (sem período atual)';
+      formM = 'n/a';
+    }
+    detalheAOA.push([
+      l.produto, l.cliente, l.situacao,
+      round2(l.qtdComp), round2(l.qtdAtual), round2(l.deltaQtd),
+      round2(l.precoComp), round2(l.precoAtual), round2(l.deltaPreco),
+      round2(l.valComp), round2(l.valAtual), round2(l.deltaVal),
+      round2(l.efeitoVolume), round2(l.efeitoPreco), round2(l.efeitoMix),
+      formV, formP, formM
+    ]);
+  }
+  // Linha de totais
+  const somaV = linhasOrd.reduce((s,l) => s+l.efeitoVolume, 0);
+  const somaP = linhasOrd.reduce((s,l) => s+l.efeitoPreco, 0);
+  const somaM = linhasOrd.reduce((s,l) => s+l.efeitoMix, 0);
+  const somaDV = linhasOrd.reduce((s,l) => s+l.deltaVal, 0);
+  detalheAOA.push([
+    'TOTAL', '', '', '', '', '', '', '', '', '', '',
+    round2(somaDV), round2(somaV), round2(somaP), round2(somaM), '', '', ''
+  ]);
+
+  // ---------- ABA 3: METODOLOGIA ----------
+  const metodoAOA = [
+    ['METODOLOGIA DA DECOMPOSIÇÃO VOLUME × PREÇO × MIX'],
+    [],
+    ['Esta análise decompõe a variação de receita entre dois períodos em três efeitos:'],
+    [],
+    ['1. EFEITO VOLUME'],
+    ['Mede quanto da variação veio da mudança na QUANTIDADE vendida.'],
+    ['Por linha (cliente×produto recorrente): (Qtd Atual - Qtd Comp) × Preço Comp'],
+    ['Agregado: (Unid Total Atual - Unid Total Comp) × Preço médio global Comp'],
+    [],
+    ['2. EFEITO PREÇO'],
+    ['Mede quanto da variação veio da mudança no PREÇO unitário (mesmo produto).'],
+    ['Por linha: (Preço Atual - Preço Comp) × Qtd Atual'],
+    ['Agregado: Σ por produto (Preço médio Atual - Preço médio Comp) × Unid Atual'],
+    [],
+    ['3. EFEITO MIX'],
+    ['Mede o efeito de mudar a COMPOSIÇÃO do portfólio (vender mais de produtos'],
+    ['mais caros ou mais baratos). É calculado como resíduo:'],
+    ['Mix = Δ Receita Total - Efeito Volume - Efeito Preço'],
+    ['Resolve o "paradoxo de Simpson": vender mais do produto caro vs barato'],
+    ['é classificado como Mix, não como Preço.'],
+    [],
+    ['SITUAÇÕES POR LINHA:'],
+    ['- Recorrente: cliente×produto com vendas nos dois períodos (decomposição completa)'],
+    ['- Novo (entrada): só tem venda no período atual → todo efeito vai pra Volume'],
+    ['- Saída: só tinha venda no comparado → efeito negativo em Volume'],
+    [],
+    ['VALIDAÇÃO:'],
+    ['A soma Volume + Preço + Mix deve igualar a Variação Total de Receita.'],
+    ['(pequenas diferenças de centavos podem ocorrer por arredondamento)'],
+    [],
+    ['NOTA SOBRE NÍVEIS:'],
+    ['A aba Detalhe mostra a decomposição interna por cliente×produto.'],
+    ['Os efeitos agregados no Resumo usam a fórmula clássica entre produtos,'],
+    ['por isso a soma dos efeitos por linha pode diferir levemente do agregado'],
+    ['(o agregado captura também o mix ENTRE produtos, não só dentro de cada um).']
+  ];
+
+  // ---------- Montar workbook ----------
+  const wb = XLSX.utils.book_new();
+  const wsResumo = XLSX.utils.aoa_to_sheet(resumoAOA);
+  const wsDetalhe = XLSX.utils.aoa_to_sheet(detalheAOA);
+  const wsMetodo = XLSX.utils.aoa_to_sheet(metodoAOA);
+
+  // Larguras
+  wsResumo['!cols'] = [{wch:32}, {wch:20}, {wch:14}];
+  wsDetalhe['!cols'] = [
+    {wch:24}, {wch:28}, {wch:14},
+    {wch:11}, {wch:11}, {wch:11},
+    {wch:14}, {wch:14}, {wch:14},
+    {wch:16}, {wch:16}, {wch:16},
+    {wch:16}, {wch:16}, {wch:16},
+    {wch:30}, {wch:30}, {wch:24}
+  ];
+  wsMetodo['!cols'] = [{wch:75}];
+
+  XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
+  XLSX.utils.book_append_sheet(wb, wsDetalhe, 'Detalhe (racional)');
+  XLSX.utils.book_append_sheet(wb, wsMetodo, 'Metodologia');
+
+  // Nome do arquivo
+  const cliFiltro = (typeof clientesSelecionados !== 'undefined' && clientesSelecionados.length === 1)
+    ? '_' + clientesSelecionados[0].substring(0,20).replace(/[^\w]/g,'_') : '';
+  const nome = `Decomposicao_VPM_${mLabel}${cliFiltro}_${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, nome);
+}
+
+// Helper de arredondamento pra 2 casas
+function round2(v){
+  return Math.round((+v || 0) * 100) / 100;
 }
 
 // Helper: renderiza uma barra horizontal da decomposição
@@ -4518,12 +4735,16 @@ function renderFranquia(data, per){
   }
 
   // Combinar SI + SO e calcular variações
+  // IMPORTANTE: franquias sem sell-out (ex: CLC) devem mostrar SO=0 / "n/d",
+  // sem gerar gap enganoso. Distinguimos "SO real = 0" de "SO inexistente".
   const todasFranquias = new Set([...Object.keys(aggSI), ...Object.keys(aggSO)]);
   const linhas = [];
   for(const fr of todasFranquias){
     const si = aggSI[fr] || {atual:0, comp:0, unidAtual:0, unidComp:0, brlAtual:0, brlComp:0};
     const so = aggSO[fr] || {atual:0, comp:0};
     const siVar = si.comp ? ((si.atual - si.comp) / si.comp * 100) : (si.atual > 0 ? 100 : 0);
+    // temSO = a franquia tem QUALQUER movimento de sell-out (atual ou comp)
+    const temSO = (so.atual > 0 || so.comp > 0);
     const soVar = so.comp ? ((so.atual - so.comp) / so.comp * 100) : (so.atual > 0 ? 100 : 0);
     const siUnidVar = si.unidComp ? ((si.unidAtual - si.unidComp) / si.unidComp * 100) : 0;
     linhas.push({
@@ -4531,7 +4752,9 @@ function renderFranquia(data, per){
       siAtual: si.atual, siComp: si.comp, siVar, siUnidVar,
       siBrlAtual: si.brlAtual, siBrlComp: si.brlComp,
       soAtual: so.atual, soComp: so.comp, soVar,
-      gap: siVar - soVar
+      temSO: temSO,
+      // gap só faz sentido se a franquia tem sell-out; senão null
+      gap: temSO ? (siVar - soVar) : null
     });
   }
   // Ordenar por valor SI atual (maior primeiro)
@@ -4648,10 +4871,11 @@ function renderFranquia(data, per){
     const seta = l.siVar >= 0 ? '▲' : '▼';
     const setaSO = l.soVar >= 0 ? '▲' : '▼';
     const corBarra = l.siVar >= 0 ? '#059669' : '#DC2626';
-    const hasSO = l.soComp > 0 || l.soAtual > 0;
+    // temSO: franquia tem sell-out de verdade (senão CLC etc. mostram n/d, não gap falso)
+    const hasSO = l.temSO;
     const gapTxt = hasSO
       ? `<span style="color:${Math.abs(l.gap) > 5 ? '#D97706' : 'var(--ink-muted)'};font-weight:${Math.abs(l.gap) > 5 ? '700' : '400'}">${l.gap >= 0 ? '+' : ''}${l.gap.toFixed(1)}pp</span>`
-      : '<span style="color:var(--ink-muted)">—</span>';
+      : '<span style="color:#9CA3AF" title="Franquia sem sell-out disponível">n/d</span>';
     html += `
       <tr style="border-bottom:1px solid #F3F4F6">
         <td style="padding:8px 10px"><b style="color:#1E3A5F">${l.franquia}</b></td>
@@ -4663,13 +4887,13 @@ function renderFranquia(data, per){
         </td>
         <td class="num" style="padding:8px 10px">${fmt(l.siAtual)}</td>
         <td class="num" style="padding:8px 10px;color:${corVar};font-weight:700">${seta} ${l.siVar >= 0 ? '+' : ''}${l.siVar.toFixed(1)}%</td>
-        <td class="num" style="padding:8px 10px;color:${corVarSO};font-weight:600">${hasSO ? `${setaSO} ${l.soVar >= 0 ? '+' : ''}${l.soVar.toFixed(1)}%` : '—'}</td>
+        <td class="num" style="padding:8px 10px;color:${hasSO ? corVarSO : '#9CA3AF'};font-weight:600">${hasSO ? `${setaSO} ${l.soVar >= 0 ? '+' : ''}${l.soVar.toFixed(1)}%` : 'n/d'}</td>
         <td class="num" style="padding:8px 10px">${gapTxt}</td>
       </tr>
     `;
   });
   html += `</tbody></table></div>`;
-  html += `<div style="font-size:10px;color:var(--ink-muted);margin-top:8px;font-style:italic">Gap SI-SO > 5pp pode indicar descompasso (estoque empurrado ou demanda em ajuste).</div>`;
+  html += `<div style="font-size:10px;color:var(--ink-muted);margin-top:8px;font-style:italic">Gap SI-SO > 5pp pode indicar descompasso (estoque empurrado ou demanda em ajuste). <b>n/d</b> = franquia sem sell-out disponível.</div>`;
   document.getElementById('franquiaBarras').innerHTML = html;
 }
 
@@ -5186,9 +5410,9 @@ function renderInsights(data, per){
         else driverFr = ` (driver: volume)`;
       }
 
-      // Comparação SI vs SO
+      // Comparação SI vs SO (só se a franquia tiver sell-out)
       let comparativoSO = '';
-      if(l.soComp > 0 || l.soAtual > 0){
+      if(l.temSO){
         const gap = l.siVar - l.soVar;
         if(Math.abs(gap) > 5){
           comparativoSO = gap > 5
@@ -5197,6 +5421,8 @@ function renderInsights(data, per){
         } else {
           comparativoSO = ` · SO ${l.soVar>=0?'+':''}${l.soVar.toFixed(1)}% (alinhado)`;
         }
+      } else {
+        comparativoSO = ` · <span style="color:#9CA3AF">SO n/d</span>`;
       }
 
       // Ações relacionadas
@@ -5583,26 +5809,61 @@ function renderTargetsFinanceiros(data, per){
     }).filter(x => x).sort((a,b) => (a.gap.pct ?? 0) - (b.gap.pct ?? 0));
 
     if(linhasProd.length > 0){
+      const totalRealProd = linhasProd.reduce((s,r) => s + r.real, 0);
+      const totalTgtProd = linhasProd.reduce((s,r) => s + r.target, 0);
+      const gapTotalProd = formatGap(totalRealProd, totalTgtProd);
+      // Contadores de status
+      const nAcima = linhasProd.filter(r => r.gap.pct !== null && r.gap.pct >= 0).length;
+      const nAlerta = linhasProd.filter(r => r.gap.pct !== null && r.gap.pct < 0 && r.gap.pct >= -10).length;
+      const nCritico = linhasProd.filter(r => r.gap.pct !== null && r.gap.pct < -10).length;
+
       html += `
-        <div style="margin-top:14px;font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase">Detalhe por Produto (YTD)</div>
+        <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase">Detalhe por Produto (YTD)</div>
+          <div style="font-size:11px;display:flex;gap:10px">
+            <span style="color:#10b981;font-weight:600">✅ ${nAcima} no alvo</span>
+            <span style="color:#D97706;font-weight:600">⚠️ ${nAlerta} em alerta</span>
+            <span style="color:#ef4444;font-weight:600">🚨 ${nCritico} crítico</span>
+          </div>
+        </div>
         <div style="overflow-x:auto">
           <table class="targets-fin-tabela">
             <thead>
-              <tr><th>Produto</th><th class="num">Real YTD</th><th class="num">Target YTD</th><th class="num">Gap %</th></tr>
+              <tr>
+                <th>Produto</th>
+                <th class="num">Real YTD</th>
+                <th class="num">Target YTD</th>
+                <th class="num">Gap (abs)</th>
+                <th class="num">Gap %</th>
+                <th class="num">% Atingido</th>
+              </tr>
             </thead>
             <tbody>
               ${linhasProd.map(r => {
-                const icone = !r.gap.pct ? '—' : (r.gap.pct >= 0 ? '✅' : (r.gap.pct >= -10 ? '⚠️' : '🚨'));
+                const icone = r.gap.pct === null ? '—' : (r.gap.pct >= 0 ? '✅' : (r.gap.pct >= -10 ? '⚠️' : '🚨'));
+                const gapAbs = r.real - r.target;
+                const pctAtingido = r.target > 0 ? (r.real / r.target * 100) : null;
                 return `<tr>
                   <td><b>${r.produto}</b></td>
                   <td class="num">${fmt(r.real)}</td>
                   <td class="num" style="color:#64748b">${r.target ? fmt(r.target) : '—'}</td>
-                  <td class="num"><b style="color:${r.gap.pct >= 0 ? '#10b981' : '#ef4444'}">${icone} ${r.gap.label}</b></td>
+                  <td class="num" style="color:${gapAbs >= 0 ? '#10b981' : '#ef4444'}">${r.target ? (gapAbs >= 0 ? '+' : '') + fmt(gapAbs) : '—'}</td>
+                  <td class="num"><b style="color:${r.gap.pct === null ? '#94a3b8' : (r.gap.pct >= 0 ? '#10b981' : '#ef4444')}">${icone} ${r.gap.label}</b></td>
+                  <td class="num" style="color:#64748b">${pctAtingido !== null ? pctAtingido.toFixed(0) + '%' : '—'}</td>
                 </tr>`;
               }).join('')}
+              <tr style="border-top:2px solid #003595;background:#F8FBFE;font-weight:700">
+                <td><b>TOTAL</b></td>
+                <td class="num"><b>${fmt(totalRealProd)}</b></td>
+                <td class="num"><b>${totalTgtProd ? fmt(totalTgtProd) : '—'}</b></td>
+                <td class="num" style="color:${(totalRealProd-totalTgtProd) >= 0 ? '#10b981' : '#ef4444'}"><b>${totalTgtProd ? ((totalRealProd-totalTgtProd) >= 0 ? '+' : '') + fmt(totalRealProd-totalTgtProd) : '—'}</b></td>
+                <td class="num"><b style="color:${gapTotalProd.pct === null ? '#94a3b8' : (gapTotalProd.pct >= 0 ? '#10b981' : '#ef4444')}">${gapTotalProd.pct === null ? '—' : (gapTotalProd.pct >= 0 ? '✅' : (gapTotalProd.pct >= -10 ? '⚠️' : '🚨')) + ' ' + gapTotalProd.label}</b></td>
+                <td class="num"><b>${totalTgtProd > 0 ? (totalRealProd/totalTgtProd*100).toFixed(0) + '%' : '—'}</b></td>
+              </tr>
             </tbody>
           </table>
         </div>
+        <div style="font-size:10px;color:var(--ink-muted);margin-top:6px;font-style:italic">Ordenado pelos maiores gaps (piores primeiro). Real YTD = acumulado Jan→${MESES_NOME[mesAtual-1]}. ✅ no alvo · ⚠️ até -10% · 🚨 abaixo de -10%.</div>
       `;
     }
   }
@@ -8374,95 +8635,219 @@ async function exportPPTX(){
     }
 
     // ============================================================
-    // SLIDES INSIGHT RÁPIDO - 2 slides (DE&OH+CLC e PHARMA)
+    // SLIDES INSIGHT RÁPIDO - 3 slides agrupados por franquia
+    // Slide 1: GERAL + DE&OH + CLC | Slide 2: GLAUCOMA + PÓS-OP/PATANOL S | Slide 3: CL (Lentes)
     // ============================================================
-    // Helper: gera insights para um conjunto específico de franquias
-    function gerarInsightsParaFranquias(franquiasIncluidas, tituloAgrupamento, baseFiltrada){
-      const ins = [];
-      // Performance multi-métrica
-      function somarMetricaFr(dados, periodo, col){
-        const set = new Set(periodo.map(p => `${p.ano}-${p.mes}`));
-        let total = 0;
-        for(const r of dados){
-          const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
-          if(set.has(k)) total += (+r[col] || 0);
-        }
-        return total;
-      }
-      const unidA = somarMetricaFr(baseFiltrada, per.periodoAtual, COLS.VALOR_UNID);
-      const unidC = somarMetricaFr(baseFiltrada, per.periodoComp, COLS.VALOR_UNID);
-      const brlA = somarMetricaFr(baseFiltrada, per.periodoAtual, COLS.VALOR_BRL);
-      const brlC = somarMetricaFr(baseFiltrada, per.periodoComp, COLS.VALOR_BRL);
-      const unidV = unidC ? ((unidA - unidC) / unidC * 100) : 0;
-      const brlV = brlC ? ((brlA - brlC) / brlC * 100) : 0;
-      const valA = metricaAtual === 'UNID' ? unidA : (metricaAtual === 'BRL' ? brlA : somarMetricaFr(baseFiltrada, per.periodoAtual, COLS.VALOR_USD));
-      const valC = metricaAtual === 'UNID' ? unidC : (metricaAtual === 'BRL' ? brlC : somarMetricaFr(baseFiltrada, per.periodoComp, COLS.VALOR_USD));
-      const varPct = valC ? ((valA - valC) / valC * 100) : 0;
-
-      // Driver
-      let driverTxt = '';
-      if(Math.abs(unidV) > 0.5 && Math.abs(brlV) > 0.5){
-        const gap = brlV - unidV;
-        if(Math.abs(gap) < 2) driverTxt = ' Crescimento equilibrado entre volume e preço.';
-        else if(gap > 2) driverTxt = ` Driver: preço/mix (BRL +${Math.abs(gap).toFixed(1)}pp acima de UNID).`;
-        else driverTxt = ` Driver: volume (UNID +${Math.abs(gap).toFixed(1)}pp acima de BRL).`;
-      }
-      const intensidade = Math.abs(varPct) > 15 ? 'acelerado' : (Math.abs(varPct) > 5 ? 'moderado' : 'leve');
-      const direcao = varPct >= 0 ? 'crescimento' : 'queda';
-      ins.push(`📈 Performance: ${intensidade} ${direcao} de ${varPct>=0?'+':''}${varPct.toFixed(1)}% em ${mLabel} (UNID ${unidV>=0?'+':''}${unidV.toFixed(1)}% · BRL ${brlV>=0?'+':''}${brlV.toFixed(1)}%) vs ${per.labelComp}.${driverTxt}`);
-
-      // Concentração - Top 5 clientes
-      const aggCli = {};
-      const setAtual = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
-      const setComp = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
-      for(const r of baseFiltrada){
+    function somarMetricaFrS3(dados, periodo, col){
+      const set = new Set(periodo.map(p => `${p.ano}-${p.mes}`));
+      let total = 0;
+      for(const r of dados){
         const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
-        const c = r[COLS.CLIENTE];
-        if(!aggCli[c]) aggCli[c] = {a:0, c:0};
-        const v = +r[COLS.VALOR_BRL] || 0;
-        if(setAtual.has(k)) aggCli[c].a += v;
-        if(setComp.has(k)) aggCli[c].c += v;
+        if(set.has(k)) total += (+r[col] || 0);
       }
-      const totalA = Object.values(aggCli).reduce((s, x) => s+x.a, 0);
-      const top5 = Object.entries(aggCli).map(([n,a]) => ({n, a:a.a, c:a.c})).sort((a,b) => b.a-a.a).slice(0,5);
-      const concPct = totalA > 0 ? (top5.reduce((s,x) => s+x.a, 0)/totalA*100) : 0;
-      const concIcon = concPct >= 80 ? '⚠️' : '📊';
-      ins.push(`${concIcon} Concentração: Top 5 clientes = <b>${concPct.toFixed(1)}%</b> do faturamento.`);
+      return total;
+    }
+    const setAtualS3 = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
+    const setCompS3 = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
 
-      // Variação por franquia individual (dentro do grupo)
-      if(franquiasIncluidas.length > 1){
-        franquiasIncluidas.forEach(fr => {
-          const baseDaFr = baseFiltrada.filter(r => String(r[COLS.FRANQUIA]) === fr);
-          if(baseDaFr.length === 0) return;
-          const vA = somarMetricaFr(baseDaFr, per.periodoAtual, metricaAtual === 'UNID' ? COLS.VALOR_UNID : COLS.VALOR_BRL);
-          const vC = somarMetricaFr(baseDaFr, per.periodoComp, metricaAtual === 'UNID' ? COLS.VALOR_UNID : COLS.VALOR_BRL);
-          const vPct = vC ? ((vA - vC) / vC * 100) : 0;
-          const icon = vPct > 5 ? '✅' : vPct >= 0 ? '🟢' : vPct > -5 ? '🟡' : vPct > -15 ? '⚠️' : '🚨';
-          const seta = vPct >= 0 ? '▲' : '▼';
-          ins.push(`${icon} <b>${fr}:</b> ${seta} ${vPct>=0?'+':''}${vPct.toFixed(1)}% (Atual: ${fmt(vA)})`);
-        });
+    // Calcular SO de uma franquia específica (para SI×SO no insight)
+    function calcularSOFranquia(nomeFranquia){
+      if(!rawDataSellout || rawDataSellout.length === 0 || !selloutUltimoPeriodo) return null;
+      const ultMesSO = selloutUltimoPeriodo;
+      function temNoSO(p){ return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes); }
+      let perSOAtual = per.periodoAtual.filter(temNoSO);
+      if(perSOAtual.length === 0) perSOAtual = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
+      const perSOComp = perSOAtual.map(p => ({ano: p.ano-1, mes: p.mes}));
+      const setAtSO = new Set(perSOAtual.map(p => `${p.ano}-${p.mes}`));
+      const setCpSO = new Set(perSOComp.map(p => `${p.ano}-${p.mes}`));
+      let soA = 0, soC = 0;
+      for(const r of rawDataSellout){
+        if(!selloutCanalOk(r)) continue;
+        if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
+        if(String(r.FRANQUIA).toUpperCase() !== String(nomeFranquia).toUpperCase()) continue;
+        const k = `${r.ANO}-${r.MES}`;
+        if(setAtSO.has(k)) soA += getValorSO(r);
+        if(setCpSO.has(k)) soC += getValorSO(r);
       }
+      const temSO = (soA > 0 || soC > 0);
+      return temSO ? {soA, soC, soVar: soC ? ((soA-soC)/soC*100) : (soA>0?100:0)} : null;
+    }
 
-      // Top alavanca e ofensor
-      const linhasCli = Object.entries(aggCli).map(([n,a]) => ({n, dAbs: a.a - a.c}));
-      const topPos = linhasCli.filter(r => r.dAbs > 0).sort((a,b) => b.dAbs - a.dAbs)[0];
-      const topNeg = linhasCli.filter(r => r.dAbs < 0).sort((a,b) => a.dAbs - b.dAbs)[0];
-      if(topPos) ins.push(`🚀 Maior alavanca: <b>${topPos.n}</b> (+${fmt(topPos.dAbs)}).`);
-      if(topNeg) ins.push(`🔴 Maior ofensor: <b>${topNeg.n}</b> (-${fmt(Math.abs(topNeg.dAbs))}).`);
+    // Análise DETALHADA de uma única franquia → array de bullets
+    function analisarFranquiaDetalhado(nomeFranquia){
+      const baseFr = base.filter(r => String(r[COLS.FRANQUIA]) === nomeFranquia);
+      if(baseFr.length === 0) return null;
 
-      // Decomposição (se relevante)
-      if(metricaAtual !== 'UNID' && window.__decompResultado){
-        const d = window.__decompResultado;
-        const totalAbs = Math.abs(d.totalVolume) + Math.abs(d.totalPreco) + Math.abs(d.totalMix);
-        if(totalAbs > 0){
-          const pctV = (Math.abs(d.totalVolume) / totalAbs * 100);
-          const pctP = (Math.abs(d.totalPreco) / totalAbs * 100);
-          const pctM = (Math.abs(d.totalMix) / totalAbs * 100);
-          ins.push(`🔍 Decomposição (BRL): Volume ${pctV.toFixed(0)}% · Preço ${pctP.toFixed(0)}% · Mix ${pctM.toFixed(0)}%.`);
+      const bullets = [];
+      // 1. Performance multi-métrica
+      const unidA = somarMetricaFrS3(baseFr, per.periodoAtual, COLS.VALOR_UNID);
+      const unidC = somarMetricaFrS3(baseFr, per.periodoComp, COLS.VALOR_UNID);
+      const brlA = somarMetricaFrS3(baseFr, per.periodoAtual, COLS.VALOR_BRL);
+      const brlC = somarMetricaFrS3(baseFr, per.periodoComp, COLS.VALOR_BRL);
+      const unidV = unidC ? ((unidA-unidC)/unidC*100) : 0;
+      const brlV = brlC ? ((brlA-brlC)/brlC*100) : 0;
+      const valA = metricaAtual==='UNID'?unidA:(metricaAtual==='BRL'?brlA:somarMetricaFrS3(baseFr,per.periodoAtual,COLS.VALOR_USD));
+      const valC = metricaAtual==='UNID'?unidC:(metricaAtual==='BRL'?brlC:somarMetricaFrS3(baseFr,per.periodoComp,COLS.VALOR_USD));
+      const varPct = valC ? ((valA-valC)/valC*100) : 0;
+
+      const icon = varPct > 5 ? '✅' : varPct >= 0 ? '🟢' : varPct > -5 ? '🟡' : varPct > -15 ? '⚠️' : '🚨';
+      const seta = varPct >= 0 ? '▲' : '▼';
+      bullets.push({lvl:0, txt:`${icon} ${nomeFranquia}: ${seta} ${varPct>=0?'+':''}${varPct.toFixed(1)}% em ${mLabel} (${fmt(valA)})`});
+
+      // 2. Driver volume vs preço
+      let driverTxt = 'volume e preço equilibrados';
+      if(Math.abs(unidV) > 0.5 || Math.abs(brlV) > 0.5){
+        const gap = brlV - unidV;
+        if(Math.abs(gap) < 2) driverTxt = 'crescimento equilibrado (volume ≈ preço)';
+        else if(gap > 2) driverTxt = `puxado por preço/mix (BRL ${brlV>=0?'+':''}${brlV.toFixed(1)}% vs UNID ${unidV>=0?'+':''}${unidV.toFixed(1)}%)`;
+        else driverTxt = `puxado por volume (UNID ${unidV>=0?'+':''}${unidV.toFixed(1)}% vs BRL ${brlV>=0?'+':''}${brlV.toFixed(1)}%)`;
+      }
+      bullets.push({lvl:1, txt:`Driver: ${driverTxt}`});
+
+      // 3. SI × SO
+      const so = calcularSOFranquia(nomeFranquia);
+      if(so){
+        const gapSO = varPct - so.soVar;
+        let txtSO;
+        if(Math.abs(gapSO) > 5){
+          txtSO = gapSO > 5
+            ? `Sell-out ${so.soVar>=0?'+':''}${so.soVar.toFixed(1)}% — SI ${gapSO.toFixed(1)}pp acima (possível estoque empurrado)`
+            : `Sell-out ${so.soVar>=0?'+':''}${so.soVar.toFixed(1)}% — SO ${Math.abs(gapSO).toFixed(1)}pp acima do SI (demanda forte)`;
+        } else {
+          txtSO = `Sell-out ${so.soVar>=0?'+':''}${so.soVar.toFixed(1)}% — alinhado ao sell-in`;
         }
+        bullets.push({lvl:1, txt:`SI×SO: ${txtSO}`});
+      } else {
+        bullets.push({lvl:1, txt:`SI×SO: sell-out não disponível para esta franquia (n/d)`});
       }
 
-      return ins;
+      // 4. Top 3 produtos da franquia
+      const aggProdFr = {};
+      for(const r of baseFr){
+        const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+        const p = r[COLS.PRODUTO] || '—';
+        if(!aggProdFr[p]) aggProdFr[p] = {a:0, c:0};
+        const v = metricaAtual==='UNID' ? (+r[COLS.VALOR_UNID]||0) : (+r[COLS.VALOR_BRL]||0);
+        if(setAtualS3.has(k)) aggProdFr[p].a += v;
+        if(setCompS3.has(k)) aggProdFr[p].c += v;
+      }
+      const topProdsFr = Object.entries(aggProdFr).map(([n,x])=>({n, a:x.a, dAbs:x.a-x.c, dPct:x.c?((x.a-x.c)/x.c*100):(x.a>0?100:0)}))
+        .filter(x=>x.a>0).sort((a,b)=>b.a-a.a).slice(0,3);
+      if(topProdsFr.length > 0){
+        const prodTxt = topProdsFr.map(p => `${p.n} (${fmt(p.a)}, ${p.dPct>=0?'+':''}${p.dPct.toFixed(0)}%)`).join(' · ');
+        bullets.push({lvl:1, txt:`Top produtos: ${prodTxt}`});
+      }
+
+      // 5. Maior alavanca e ofensor (produto)
+      const prodMovers = Object.entries(aggProdFr).map(([n,x])=>({n, dAbs:x.a-x.c}));
+      const topPosP = prodMovers.filter(p=>p.dAbs>0).sort((a,b)=>b.dAbs-a.dAbs)[0];
+      const topNegP = prodMovers.filter(p=>p.dAbs<0).sort((a,b)=>a.dAbs-b.dAbs)[0];
+      if(topPosP || topNegP){
+        let mov = '';
+        if(topPosP) mov += `🚀 ${topPosP.n} (+${fmt(topPosP.dAbs)})`;
+        if(topNegP) mov += `${topPosP?' · ':''}🔴 ${topNegP.n} (-${fmt(Math.abs(topNegP.dAbs))})`;
+        bullets.push({lvl:1, txt:`Movers: ${mov}`});
+      }
+
+      // 6. Top 3 clientes da franquia
+      const aggCliFr = {};
+      for(const r of baseFr){
+        const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+        const c = r[COLS.CLIENTE] || '—';
+        if(!aggCliFr[c]) aggCliFr[c] = {a:0, c:0};
+        const v = metricaAtual==='UNID' ? (+r[COLS.VALOR_UNID]||0) : (+r[COLS.VALOR_BRL]||0);
+        if(setAtualS3.has(k)) aggCliFr[c].a += v;
+        if(setCompS3.has(k)) aggCliFr[c].c += v;
+      }
+      const topCliFr = Object.entries(aggCliFr).map(([n,x])=>({n, a:x.a, dPct:x.c?((x.a-x.c)/x.c*100):(x.a>0?100:0)}))
+        .filter(x=>x.a>0).sort((a,b)=>b.a-a.a).slice(0,3);
+      const totalCliFr = Object.values(aggCliFr).reduce((s,x)=>s+x.a,0);
+      if(topCliFr.length > 0){
+        const concFr = totalCliFr>0 ? (topCliFr.reduce((s,x)=>s+x.a,0)/totalCliFr*100) : 0;
+        const cliTxt = topCliFr.map(c => `${c.n} (${c.dPct>=0?'+':''}${c.dPct.toFixed(0)}%)`).join(' · ');
+        bullets.push({lvl:1, txt:`Top clientes (${concFr.toFixed(0)}% do total): ${cliTxt}`});
+      }
+
+      return bullets;
+    }
+
+    // Gera o conteúdo completo de um SLIDE (grupo de franquias)
+    function gerarSlideGrupo(tituloSlide, franquiasDoGrupo, incluirGeral){
+      const franquiasValidas = franquiasDoGrupo.filter(fr =>
+        base.some(r => String(r[COLS.FRANQUIA]) === fr)
+      );
+      if(franquiasValidas.length === 0 && !incluirGeral) return;
+
+      const s = pptx.addSlide();
+      addHeader(s, `💡 Insight Rápido · ${tituloSlide}`);
+
+      const allBullets = [];
+
+      // Bloco GERAL (consolidado do grupo) - opcional
+      if(incluirGeral){
+        const baseGrupo = base.filter(r => franquiasValidas.includes(String(r[COLS.FRANQUIA])));
+        const unidA = somarMetricaFrS3(baseGrupo, per.periodoAtual, COLS.VALOR_UNID);
+        const unidC = somarMetricaFrS3(baseGrupo, per.periodoComp, COLS.VALOR_UNID);
+        const brlA = somarMetricaFrS3(baseGrupo, per.periodoAtual, COLS.VALOR_BRL);
+        const brlC = somarMetricaFrS3(baseGrupo, per.periodoComp, COLS.VALOR_BRL);
+        const valA = metricaAtual==='UNID'?unidA:(metricaAtual==='BRL'?brlA:somarMetricaFrS3(baseGrupo,per.periodoAtual,COLS.VALOR_USD));
+        const valC = metricaAtual==='UNID'?unidC:(metricaAtual==='BRL'?brlC:somarMetricaFrS3(baseGrupo,per.periodoComp,COLS.VALOR_USD));
+        const varPct = valC ? ((valA-valC)/valC*100) : 0;
+        const unidV = unidC ? ((unidA-unidC)/unidC*100) : 0;
+        const brlV = brlC ? ((brlA-brlC)/brlC*100) : 0;
+        const seta = varPct >= 0 ? '▲' : '▼';
+
+        allBullets.push({lvl:0, txt:`🌍 GERAL (consolidado): ${seta} ${varPct>=0?'+':''}${varPct.toFixed(1)}% em ${mLabel} (${fmt(valA)})`, header:true});
+        allBullets.push({lvl:1, txt:`UNID ${unidV>=0?'+':''}${unidV.toFixed(1)}% · BRL ${brlV>=0?'+':''}${brlV.toFixed(1)}% vs ${per.labelComp}`});
+
+        // Decomposição consolidada (se BRL/USD)
+        if(metricaAtual !== 'UNID' && window.__decompResultado){
+          const d = window.__decompResultado;
+          const totalAbs = Math.abs(d.totalVolume)+Math.abs(d.totalPreco)+Math.abs(d.totalMix);
+          if(totalAbs > 0){
+            allBullets.push({lvl:1, txt:`Decomposição: Volume ${(Math.abs(d.totalVolume)/totalAbs*100).toFixed(0)}% · Preço ${(Math.abs(d.totalPreco)/totalAbs*100).toFixed(0)}% · Mix ${(Math.abs(d.totalMix)/totalAbs*100).toFixed(0)}%`});
+          }
+        }
+        allBullets.push({lvl:0, txt:'', spacer:true});
+      }
+
+      // Bloco por franquia (detalhado)
+      franquiasValidas.forEach(fr => {
+        const bl = analisarFranquiaDetalhado(fr);
+        if(bl){
+          bl.forEach((b, i) => { if(i === 0) b.header = true; allBullets.push(b); });
+          allBullets.push({lvl:0, txt:'', spacer:true});
+        }
+      });
+
+      // Renderizar bullets no slide
+      const textRuns = [];
+      allBullets.forEach(b => {
+        if(b.spacer){
+          textRuns.push({text:'\n', options:{fontSize:4}});
+          return;
+        }
+        textRuns.push({
+          text: b.txt + '\n',
+          options: {
+            bullet: b.header ? false : {indent: b.lvl > 0 ? 0.3 : 0},
+            fontSize: b.header ? 13 : 11,
+            bold: b.header ? true : false,
+            color: b.header ? '003595' : '1E3A5F',
+            paraSpaceAfter: b.header ? 4 : 3,
+            indentLevel: b.lvl
+          }
+        });
+      });
+
+      s.addText(textRuns, {
+        x:0.4, y:0.95, w:12.5, h:6.0,
+        fill:{color:'F8FBFE'}, valign:'top', margin:14, line:{color:'003595', width:1}
+      });
+
+      s.addText(`${tituloSlide} · ${per.labelAtual} vs ${per.labelComp || 'YA'} · ${mLabel}`, {
+        x:0.4, y:7.05, w:12.5, h:0.3, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
     }
 
     // Detectar franquias disponíveis
@@ -8470,53 +8855,36 @@ async function exportPPTX(){
       ? window.__franquiaResultado.map(l => l.franquia)
       : [...new Set(base.map(r => String(r[COLS.FRANQUIA] || '')).filter(f => f))];
 
-    // Separar em PHARMA vs OUTRAS (DE&OH, CLC, etc.)
-    const isPharma = (fr) => String(fr).toUpperCase().includes('PHARMA');
-    const franquiasPharma = todasFranquiasS3.filter(isPharma);
-    const franquiasOutras = todasFranquiasS3.filter(fr => !isPharma(fr));
+    // Classificar franquias nos 3 grupos (match flexível por palavra-chave)
+    const up = (s) => String(s).toUpperCase();
+    const matchFr = (fr, termos) => termos.some(t => up(fr).includes(t));
 
-    // === SLIDE A: Insight Rápido · MACRO (DE&OH + CLC + outras não-PHARMA) ===
-    if(franquiasOutras.length > 0){
-      const s3a = pptx.addSlide();
-      const nomeGrupoA = franquiasOutras.join(' + ');
-      addHeader(s3a, `💡 Insight Rápido · ${nomeGrupoA}`);
-      const baseFiltradaA = base.filter(r => franquiasOutras.includes(String(r[COLS.FRANQUIA])));
-      const insightsA = gerarInsightsParaFranquias(franquiasOutras, nomeGrupoA, baseFiltradaA);
-      const bulletsA = insightsA.map(t => ({
-        text: t.replace(/<\/?b>/g, ''),
-        options:{bullet:true, fontSize:13, color:'1E3A5F', paraSpaceAfter:8}
-      }));
-      s3a.addText(bulletsA, {
-        x:0.5, y:1.0, w:12.3, h:5.8,
-        fill:{color:'EBF4FB'}, valign:'top', margin:18, line:{color:'003595', width:1}
-      });
-      // Footer
-      s3a.addText(`Franquias incluídas: ${franquiasOutras.join(', ')} · ${per.labelAtual} vs ${per.labelComp || 'YA'}`, {
-        x:0.5, y:6.95, w:12.3, h:0.3, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans'
-      });
+    // Grupo 1: DE&OH + CLC
+    const grupo1 = todasFranquiasS3.filter(fr => matchFr(fr, ['DE&OH', 'DEOH', 'DE & OH', 'CLC']));
+    // Grupo 2: GLAUCOMA + PÓS-OP/PATANOL S
+    const grupo2 = todasFranquiasS3.filter(fr => matchFr(fr, ['GLAUCOMA', 'PÓS', 'POS-OP', 'POS OP', 'PATANOL']));
+    // Grupo 3: CL / LENTES
+    const grupo3 = todasFranquiasS3.filter(fr => matchFr(fr, ['LENTES', 'LENTE', 'CL ', ' CL', 'CONTACT']) && !matchFr(fr, ['CLC']));
+    // Franquias não classificadas → cair no grupo 1 (geral)
+    const classificadas = new Set([...grupo1, ...grupo2, ...grupo3]);
+    const naoClassificadas = todasFranquiasS3.filter(fr => !classificadas.has(fr));
+    const grupo1Final = [...grupo1, ...naoClassificadas];
+
+    // === SLIDE 1: GERAL + DE&OH + CLC ===
+    if(grupo1Final.length > 0){
+      gerarSlideGrupo(grupo1Final.join(' + '), grupo1Final, true);
+    }
+    // === SLIDE 2: GLAUCOMA + PÓS-OP/PATANOL S ===
+    if(grupo2.length > 0){
+      gerarSlideGrupo(grupo2.join(' + '), grupo2, true);
+    }
+    // === SLIDE 3: CL (Lentes) ===
+    if(grupo3.length > 0){
+      gerarSlideGrupo(grupo3.join(' + '), grupo3, true);
     }
 
-    // === SLIDE B: Insight Rápido · PHARMA ===
-    if(franquiasPharma.length > 0){
-      const s3b = pptx.addSlide();
-      addHeader(s3b, `💡 Insight Rápido · ${franquiasPharma.join(' + ')}`);
-      const baseFiltradaB = base.filter(r => franquiasPharma.includes(String(r[COLS.FRANQUIA])));
-      const insightsB = gerarInsightsParaFranquias(franquiasPharma, franquiasPharma.join('+'), baseFiltradaB);
-      const bulletsB = insightsB.map(t => ({
-        text: t.replace(/<\/?b>/g, ''),
-        options:{bullet:true, fontSize:13, color:'1E3A5F', paraSpaceAfter:8}
-      }));
-      s3b.addText(bulletsB, {
-        x:0.5, y:1.0, w:12.3, h:5.8,
-        fill:{color:'EBF4FB'}, valign:'top', margin:18, line:{color:'003595', width:1}
-      });
-      s3b.addText(`Franquias incluídas: ${franquiasPharma.join(', ')} · ${per.labelAtual} vs ${per.labelComp || 'YA'}`, {
-        x:0.5, y:6.95, w:12.3, h:0.3, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans'
-      });
-    }
-
-    // Fallback: se não detectou PHARMA nem OUTRAS, gera slide único genérico (compat com dados sem franquias)
-    if(franquiasOutras.length === 0 && franquiasPharma.length === 0){
+    // Fallback: nenhuma franquia classificada → slide único genérico
+    if(grupo1Final.length === 0 && grupo2.length === 0 && grupo3.length === 0){
       const s3 = pptx.addSlide();
       addHeader(s3, '💡 Insight Rápido');
       const insightsEls = document.querySelectorAll('#insightsList li');
