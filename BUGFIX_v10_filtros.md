@@ -1,90 +1,84 @@
-# v10 - 2 correções
+# v10 - Target Financeiro no PPT + diagnóstico de libs
 
-## 1️⃣ Bug do Resumo × KPI · agora batem 100%
+## 1️⃣ Target Financeiro no PowerPoint (NOVO)
 
-### Causa real
-A função `clienteBate` no Resumo usava match por palavra-chave SEMPRE,
-mesmo quando havia filtro de cliente ativo. Isso causava divergência
-quando alguma linha tinha nome diferente da keyword (ex: "Sta Cruz",
-"Santa Cruz Drogarias", etc).
+### Antes
+O PPT exportado não tinha slide de Targets Financeiros, mesmo se o arquivo
+de targets estivesse carregado.
+
+### Agora
+Se o arquivo `Targets_Financeiros.xlsx` tem dados na métrica atual,
+o PPT gera **1 slide completo** com:
+
+- **3 cards principais** (cor adaptativa: verde/laranja/vermelho)
+  - 📅 Atingimento do mês atual (Real vs Target)
+  - 📊 YTD (Jan→mês: Real acumulado vs Target acumulado)
+  - 🎯 Ano completo (projeção anualizada vs Target ano)
+- **Tabela detalhada por produto** (Top 8 piores gaps primeiro)
+  - Produto · Real YTD · Target YTD · Gap absoluto · Atingimento %
+  - Cada linha colorida pelo status (✅⚠️🚨)
+
+O slide é gerado entre os slides de Decomposição e os de Plano de Recuperação.
+
+### Respeita filtros
+- Filtro de franquia do dashboard é aplicado também no slide
+- Métrica selecionada (BRL/UNID/USD) define qual coluna de target usar
+- Se nenhuma target preenchida na métrica → o slide não é gerado
+
+## 2️⃣ Banner de diagnóstico se libs não carregaram
+
+### Problema
+Se uma das libs (SheetJS, Chart.js, PptxGenJS) não carregar no browser,
+o usuário só descobre quando clica num botão de export e dá alert.
 
 ### Correção
-A função agora tem 2 modos:
-- **Sem filtro de cliente**: usa palavra-chave (consolida grupo econômico) ✓
-- **Com filtro de cliente**: usa **match exato dos selecionados** (igual KPI) ✓
+Adicionado um **banner no topo do dashboard** que detecta automaticamente
+quais libs estão faltando ao carregar a página. Se algo falhar, aparece:
 
-Quando você filtra "Santa Cruz" no KPI, o Resumo agora soma EXATAMENTE
-os mesmos registros (cliente.toUpperCase() === "SANTA CRUZ"). Outras linhas
-do Resumo (Brasil/Raia/DPSP/etc) aparecem zeradas ou só com o que foi
-selecionado.
-
-### Aviso atualizado
-Não diz mais "pode haver diferença" - agora diz:
-> ✅ Filtro ativo · valores alinhados com o KPI
-
-## 2️⃣ libs_local não carregando
-
-### Causa
-O Python procurava `libs_local` como caminho RELATIVO. Se você rodava o
-script de outra pasta (ex: VSCode aberto na pasta pai), ele não encontrava
-a pasta mesmo estando ao lado do `.py`.
-
-### Correção (3 melhorias)
-
-#### a) Caminho absoluto baseado na localização do .py
-```python
-LIBS_LOCAL_DIR = Path(__file__).parent / "libs_local"
 ```
-Agora sempre acha, independente de onde você rodou.
-
-#### b) Diagnóstico explícito no console
-Logo no início, mostra:
-- Onde está procurando (caminho completo)
-- Se a pasta existe
-- Quais arquivos .js tem dentro
-
-Exemplo do que aparece agora:
-```
-  EMBEDDING DE BIBLIOTECAS EXTERNAS
-  Pasta local: C:\Users\PEREILU3\OneDrive\...\libs_local
-  Arquivos .js encontrados: 4
-    - chart.umd.min.js
-    - chartjs-plugin-datalabels.min.js
-    - pptxgen.bundle.js
-    - xlsx.full.min.js
+⚠️ Bibliotecas JavaScript não carregaram
+Faltam: SheetJS (exportar Excel), Chart.js (gráficos)
+Algumas funções podem não funcionar. Regere o HTML com a pasta libs_local/
+ao lado do script Python.
 ```
 
-#### c) Aviso CRÍTICO se sobrou tag CDN no HTML
-Se por qualquer motivo o embed falhou e ficou `<script src="cdn...">`
-no HTML, o console grita:
+Console também loga:
 ```
-!!! CRITICO: 4 tag(s) <script src=cdn...> ainda no HTML!
-!  HTML NAO funcionara em ambientes que bloqueiam CDN.
-!  Verifique se libs_local/ tem todos os arquivos .js corretos.
+✅ Todas as bibliotecas carregadas: SheetJS, Chart.js, PptxGenJS
+```
+ou
+```
+❌ Bibliotecas não carregadas: SheetJS (exportar Excel)
 ```
 
-Agora você não fica adivinhando: o console diz exatamente o problema
-e a solução.
+## 3️⃣ Sobre o erro do Excel
+Se você está com erro "SheetJS não carregada":
+1. Abra o HTML no browser
+2. Olha se aparece o banner vermelho no topo
+3. Se aparecer → o HTML gerado pelo Python está sem a lib embutida
+4. Volte ao terminal e olhe o output do `python sales_dashboard_v10.py`
+5. Procure pela seção `EMBEDDING DE BIBLIOTECAS EXTERNAS`
+6. Confirme que aparece `[LOCAL] SheetJS (xlsx): 639,123 bytes`
+
+Se aparecer **`AVISO: pasta NAO existe`** → o `libs_local/` não está ao lado do `.py`
+Se aparecer **`arquivo NAO encontrado`** → o `xlsx.full.min.js` não está dentro de libs_local
+Se aparecer **`CRITICO: tags <script src=cdn>`** → mande print pra eu olhar
 
 ## ✅ Validações
-- Sintaxe Python e JS OK
-- Cenário COM libs_local: 4 embutidas, 0 CDN, console limpo ✅
-- Cenário SEM libs_local: 4 avisos críticos visíveis ✅
-- Teste alinhamento KPI × Resumo: bate 100% com filtro ativo ✅
+- Sintaxe JS OK (3 scripts inline)
+- Python rodou end-to-end (HTML 2.15 MB)
+- 0 tags CDN no HTML final
+- SheetJS embutido confirmado
+- Slide Target Financeiro presente no exportPPTX
+- Banner de erro adicionado e funcional
 
-## 🧪 Como testar (no seu PC corporativo)
+## 🧪 Como testar
 
-1. Substitua `sales_dashboard_v10.py`
-2. Substitua `dashboard_template_v10.html`
-3. Confirme que `libs_local/` está na MESMA pasta do `.py` (não em subpasta)
-4. Rode `python sales_dashboard_v10.py`
-5. **Olhe o console**: deve aparecer `[LOCAL] SheetJS (xlsx): 639,123 bytes`
-   - Se aparecer "AVISO: pasta NAO existe" → caminho errado
-   - Se aparecer "[LOCAL] X: arquivo NAO encontrado" → faltam arquivos na pasta
-   - Se aparecer "CRITICO: tags <script src=cdn...>" → não embutiu corretamente
-6. Abra o HTML → exportar Excel → funciona ✅
-7. Selecione um cliente no filtro → KPI e Resumo mostram o mesmo número ✅
-
-## 💡 Se ainda der erro de SheetJS
-Mande print do console exatamente como aparece após `EMBEDDING DE BIBLIOTECAS`.
-Com esse log eu identifico o problema em 1 minuto.
+1. Substitua `dashboard_template_v10.html`
+2. Rode `python sales_dashboard_v10.py`
+3. **Confirme no console**: aparece `[LOCAL] SheetJS (xlsx): 639,123 bytes`
+4. Abra o HTML
+5. **No topo da página**: NÃO deve aparecer banner vermelho (se aparecer, falta lib)
+6. Console do browser (F12): deve aparecer `✅ Todas as bibliotecas carregadas`
+7. Clique em exportar Excel → funciona ✅
+8. Clique em exportar PowerPoint → role até o slide "Targets Financeiros" ✅

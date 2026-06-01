@@ -494,6 +494,33 @@
 </head>
 <body>
 
+<!-- Banner de erro se uma das libs essenciais não carregou (corporate firewall) -->
+<div id="libErrorBanner" style="display:none;background:#FEE2E2;border-bottom:3px solid #DC2626;padding:12px 20px;color:#7F1D1D;font-family:Arial,sans-serif;font-size:13px;line-height:1.5">
+  <b style="font-size:14px">⚠️ Bibliotecas JavaScript não carregaram</b>
+  <div id="libErrorList" style="margin-top:4px"></div>
+  <div style="margin-top:6px;font-size:11px;font-style:italic">Algumas funções (exportar Excel, PowerPoint, gráficos) podem não funcionar. Regere o HTML com a pasta libs_local/ ao lado do script Python.</div>
+</div>
+<script>
+// Verificar libs disponíveis ao carregar a página
+window.addEventListener('DOMContentLoaded', function(){
+  var faltando = [];
+  if(typeof XLSX === 'undefined') faltando.push('SheetJS (exportar Excel)');
+  if(typeof Chart === 'undefined') faltando.push('Chart.js (gráficos)');
+  if(typeof PptxGenJS === 'undefined') faltando.push('PptxGenJS (exportar PowerPoint)');
+  if(faltando.length > 0){
+    var banner = document.getElementById('libErrorBanner');
+    var list = document.getElementById('libErrorList');
+    if(banner && list){
+      banner.style.display = 'block';
+      list.innerHTML = 'Faltam: <b>' + faltando.join(', ') + '</b>';
+    }
+    console.error('Bibliotecas não carregadas:', faltando.join(', '));
+  } else {
+    console.log('✅ Todas as bibliotecas carregadas: SheetJS, Chart.js, PptxGenJS');
+  }
+});
+</script>
+
 <div class="header">
   <div class="header-logo">
     <div class="header-left">
@@ -10905,6 +10932,125 @@ async function exportPPTX(){
         dataLabelPosition: 'r',
         dataLabelFormatCode: '#,##0'
       });
+    }
+
+    // ============================================================
+    // SLIDE: TARGETS FINANCEIROS (Mês + YTD + Ano + Top produtos)
+    // Só gera se o arquivo de targets foi carregado E há valores na métrica atual
+    // ============================================================
+    if(typeof targetsFinanceiros !== 'undefined' && targetsFinanceiros.length > 0){
+      const mapCampoT = {UNID: 'TARGET_UNID', BRL: 'TARGET_BRL', USD: 'TARGET_USD'};
+      const campoTgt = mapCampoT[metricaAtual];
+      const algumTgt = campoTgt && targetsFinanceiros.some(t => (+t[campoTgt] || 0) > 0);
+
+      if(algumTgt){
+        const sTgt = pptx.addSlide();
+        sTgt.background = {color: BRANCO};
+        addHeader(sTgt, `🎯 Targets Financeiros · Atingimento ${mLabel}`);
+
+        // Filtrar targets pelos mesmos filtros do dashboard
+        const targetsF = targetsFinanceiros.filter(t => {
+          if(franquiasSelecionadas.length && !franquiasSelecionadas.includes(t.FRANQUIA)) return false;
+          return true;
+        });
+
+        const mesAtualT = Math.max(...per.meses);
+        const anoAtualT = per.ano;
+
+        // Target mês
+        const tgtMes = targetsF.filter(t => +t.ANO === anoAtualT && +t.MES_NUM === mesAtualT)
+          .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
+        const realMesT = base.filter(r => r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] === mesAtualT)
+          .reduce((s, r) => s + getValor(r), 0);
+
+        // Target YTD
+        const tgtYTD = targetsF.filter(t => +t.ANO === anoAtualT && +t.MES_NUM <= mesAtualT)
+          .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
+        const realYTDT = base.filter(r => r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] <= mesAtualT)
+          .reduce((s, r) => s + getValor(r), 0);
+
+        // Target ano
+        const tgtAno = targetsF.filter(t => +t.ANO === anoAtualT)
+          .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
+        const projAno = realYTDT > 0 && mesAtualT > 0 ? (realYTDT / mesAtualT * 12) : 0;
+
+        const calcGap = (real, target) => {
+          if(!target) return {pct:null, abs:0, label:'sem target', cor:CINZA, icon:'—'};
+          const abs = real - target;
+          const pct = abs / target * 100;
+          const cor = pct >= 0 ? VERDE : (pct >= -10 ? LARANJA : VERMELHO);
+          const icon = pct >= 0 ? '✅' : (pct >= -10 ? '⚠️' : '🚨');
+          return {pct, abs, label:`${pct>=0?'+':''}${pct.toFixed(1)}%`, cor, icon};
+        };
+        const gMes = calcGap(realMesT, tgtMes);
+        const gYTD = calcGap(realYTDT, tgtYTD);
+        const gAno = calcGap(projAno, tgtAno);
+
+        // 3 cards principais
+        const mesNome = MESES_NOME[mesAtualT - 1];
+        const cards = [
+          {tit:`📅 ${mesNome}/${anoAtualT}`, real:realMesT, tgt:tgtMes, gap:gMes, sub:'Mês'},
+          {tit:`📊 YTD ${anoAtualT}`, real:realYTDT, tgt:tgtYTD, gap:gYTD, sub:`Jan-${mesNome}`},
+          {tit:`🎯 Ano ${anoAtualT}`, real:projAno, tgt:tgtAno, gap:gAno, sub:'Projeção anualizada'}
+        ];
+        cards.forEach((c, i) => {
+          const xC = 0.4 + i*4.25;
+          sTgt.addShape(pptx.ShapeType.rect, {x:xC, y:0.95, w:4.0, h:2.4, fill:{color:BRANCO}, line:{color:c.gap.cor, width:2}});
+          sTgt.addShape(pptx.ShapeType.rect, {x:xC, y:0.95, w:0.12, h:2.4, fill:{color:c.gap.cor}, line:{type:'none'}});
+          sTgt.addText(c.tit, {x:xC+0.2, y:1.05, w:3.7, h:0.35, fontSize:13, bold:true, color:CINZA, fontFace:'Open Sans'});
+          sTgt.addText(c.sub, {x:xC+0.2, y:1.4, w:3.7, h:0.25, fontSize:10, italic:true, color:CINZA, fontFace:'Open Sans'});
+          sTgt.addText(fmt(c.real), {x:xC+0.2, y:1.7, w:3.7, h:0.5, fontSize:24, bold:true, color:AZUL_ESCURO, fontFace:'Open Sans'});
+          sTgt.addText(`Target: ${c.tgt > 0 ? fmt(c.tgt) : '—'}`, {x:xC+0.2, y:2.25, w:3.7, h:0.3, fontSize:11, color:CINZA, fontFace:'Open Sans'});
+          sTgt.addText(`${c.gap.icon} ${c.gap.label}`, {x:xC+0.2, y:2.6, w:3.7, h:0.5, fontSize:18, bold:true, color:c.gap.cor, fontFace:'Open Sans'});
+        });
+
+        // Tabela: atingimento por produto (YTD)
+        sTgt.addText('Detalhe por produto · YTD', {x:0.4, y:3.55, w:12.5, h:0.3, fontSize:12, bold:true, color:AZUL, fontFace:'Open Sans'});
+
+        // Calcular real e target por produto
+        const produtosT = [...new Set(targetsF.map(t => t.PRODUTO))];
+        const linhasProd = produtosT.map(prod => {
+          const realP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] <= mesAtualT)
+            .reduce((s, r) => s + getValor(r), 0);
+          const tgtP = targetsF.filter(t => t.PRODUTO === prod && +t.ANO === anoAtualT && +t.MES_NUM <= mesAtualT)
+            .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
+          return {prod, real:realP, tgt:tgtP, gap:calcGap(realP, tgtP)};
+        }).filter(l => l.real > 0 || l.tgt > 0)
+          .sort((a, b) => (a.gap.pct === null ? 999 : a.gap.pct) - (b.gap.pct === null ? 999 : b.gap.pct))
+          .slice(0, 8);
+
+        if(linhasProd.length > 0){
+          const headerRow = [
+            {text:'Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10}},
+            {text:'Real YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10, align:'center'}},
+            {text:'Target YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10, align:'center'}},
+            {text:'Gap abs', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10, align:'center'}},
+            {text:'Atingimento', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10, align:'center'}}
+          ];
+          const dataRows = linhasProd.map(l => [
+            {text:l.prod, options:{fontSize:10, color:PRETO}},
+            {text:fmt(l.real), options:{fontSize:10, color:PRETO, align:'center'}},
+            {text:l.tgt > 0 ? fmt(l.tgt) : '—', options:{fontSize:10, color:CINZA, align:'center'}},
+            {text:l.gap.pct !== null ? `${l.gap.abs>=0?'+':''}${fmt(l.gap.abs)}` : '—', options:{fontSize:10, color:l.gap.cor, align:'center', bold:true}},
+            {text:`${l.gap.icon} ${l.gap.label}`, options:{fontSize:10, color:l.gap.cor, align:'center', bold:true}}
+          ]);
+          sTgt.addTable([headerRow, ...dataRows], {
+            x:0.4, y:3.85, w:12.5,
+            colW:[3.5, 2.2, 2.2, 2.3, 2.3],
+            border:{type:'solid', pt:0.5, color:'E5E7EB'},
+            rowH:0.4
+          });
+        } else {
+          sTgt.addText('Sem produtos com target cadastrado nos filtros atuais.', {
+            x:0.4, y:3.9, w:12.5, h:0.4, fontSize:11, italic:true, color:CINZA, fontFace:'Open Sans'
+          });
+        }
+
+        // Footer
+        sTgt.addText(`Métrica: ${mLabel} · Filtros aplicados: ${franquiasSelecionadas.length ? franquiasSelecionadas.join(', ') : 'todas franquias'}`, {
+          x:0.4, y:7.0, w:12.5, h:0.25, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans'
+        });
+      }
     }
 
     // ============================================================
