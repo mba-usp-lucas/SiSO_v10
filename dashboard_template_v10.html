@@ -535,7 +535,7 @@
         <span class="upload-bar-label">📤 Carregar dados:</span>
         <button class="btn-upload" onclick="document.getElementById('fileInput').click()" title="Sell-in xlsx (ANO, MES_NUM, GRUPO_CLIENTE_FINAL, etc.)">📁 Sell-in xlsx</button>
         <button class="btn-upload" onclick="document.getElementById('fileTargets').click()" title="Targets % por produto (PRODUTO, TARGET_PCT, FLAG)">🎯 Targets %</button>
-        <button class="btn-upload" onclick="document.getElementById('fileTargetsFin').click()" title="Targets financeiros (FRANQUIA, PRODUTO, ANO, MES_NUM, TARGET_BRL, TARGET_UNID)">💰 Targets R$</button>
+        <button class="btn-upload" onclick="document.getElementById('fileTargetsFin').click()" title="Targets financeiros (FRANQUIA, PRODUTO, ANO, MES_NUM, TARGET_BRL, TARGET_UNID, TARGET_USD)">💰 Targets R$</button>
       </div>
       <div class="filters">
     <!-- Selects hidden mantidos só para compatibilidade com getSelecionados() -->
@@ -784,12 +784,10 @@
       <div style="font-size:11px;color:var(--ink-muted);margin-bottom:12px;padding:8px 12px;background:#F0F9FF;border-radius:6px;border-left:3px solid #0EA5E9">
         ℹ️ <b>Diagnóstico</b> com dados reais da base + <b>Plano de Ação</b> combinando sugestões fixas com ações dinâmicas (preenchidas com top ofensores reais). Impacto $ estimado em 40-50% da queda observada.
       </div>
-      <!-- Toggle entre grupos -->
-      <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:11px;font-weight:600;color:var(--ink-muted);text-transform:uppercase">Grupo:</span>
-        <button type="button" id="btnGrupoRec1" class="metric-btn active" onclick="togglePlanoRecuperacao(1)" style="font-size:11px">1️⃣ DE&OH + CLC</button>
-        <button type="button" id="btnGrupoRec2" class="metric-btn" onclick="togglePlanoRecuperacao(2)" style="font-size:11px">2️⃣ Glaucoma + Pós-Op</button>
-        <button type="button" id="btnGrupoRec3" class="metric-btn" onclick="togglePlanoRecuperacao(3)" style="font-size:11px">3️⃣ CL (Lentes)</button>
+      <!-- Toggle entre grupos (gerado dinamicamente baseado nas franquias da base) -->
+      <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center;flex-wrap:wrap" id="planoRecToggleContainer">
+        <span style="font-size:11px;font-weight:600;color:var(--ink-muted);text-transform:uppercase">Franquia:</span>
+        <div id="planoRecBotoes" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         <button type="button" id="btnExportRecXLSX" class="metric-btn" onclick="exportPlanoRecuperacaoExcel()" style="font-size:11px;margin-left:auto;background:#10B981;color:white" title="Exportar diagnóstico e plano de ação para Excel">📥 Excel</button>
       </div>
       <div id="planoRecuperacaoContent"></div>
@@ -1620,7 +1618,7 @@ document.getElementById('fileTargetsFin').addEventListener('change', function(e)
       const required = ['FRANQUIA', 'PRODUTO', 'ANO', 'MES_NUM'];
       const missing = required.filter(r => !(r in firstRow));
       if(missing.length){
-        throw new Error('Colunas faltando: ' + missing.join(', ') + '. Colunas esperadas: FRANQUIA, PRODUTO, ANO, MES_NUM, TARGET_BRL, TARGET_UNID');
+        throw new Error('Colunas faltando: ' + missing.join(', ') + '. Colunas esperadas: FRANQUIA, PRODUTO, ANO, MES_NUM, TARGET_BRL, TARGET_UNID, TARGET_USD');
       }
 
       targetsFinanceiros = json.filter(r => r.PRODUTO && r.ANO && r.MES_NUM).map(r => ({
@@ -1629,7 +1627,8 @@ document.getElementById('fileTargetsFin').addEventListener('change', function(e)
         ANO: parseInt(r.ANO),
         MES_NUM: parseInt(r.MES_NUM),
         TARGET_BRL: parseFloat(r.TARGET_BRL) || 0,
-        TARGET_UNID: parseFloat(r.TARGET_UNID) || 0
+        TARGET_UNID: parseFloat(r.TARGET_UNID) || 0,
+        TARGET_USD: parseFloat(r.TARGET_USD) || 0  // opcional - se vazio fica 0
       }));
 
       alert(`✅ ${targetsFinanceiros.length} linhas de target financeiro carregadas!`);
@@ -3588,17 +3587,54 @@ function togglePlanoAcaoView(modo){
 // ============================================================
 let grupoRecAtivo = 1;
 
+// Classifica uma franquia em "tipo" de ação tática (para ações fixas no plano)
+// Tipos: 'farma' (Glaucoma, Pós-Op), 'deoh_clc' (DE&OH, CLC), 'lentes' (CL/Lentes), 'outro'
+function classificarTipoFranquia(nomeFranquia){
+  const up = String(nomeFranquia).toUpperCase().trim();
+  // Match exato primeiro
+  if(up === 'GLAUCOMA') return 'farma';
+  if(up === 'PÓS-OP. & PATANOL S' || up === 'POS-OP. & PATANOL S') return 'farma';
+  if(up === 'DE&OH') return 'deoh_clc';
+  if(up === 'CLC') return 'deoh_clc';
+  if(up === 'CL') return 'lentes';
+  // Fallback por keyword (caso o nome venha com pequenas variações de digitação)
+  if(/GLAUCOMA|PATANOL|PÓS-?OP|POS-?OP/.test(up)) return 'farma';
+  if(/DE&OH|DEOH|DE\s*&\s*OH/.test(up)) return 'deoh_clc';
+  if(up === 'CLC') return 'deoh_clc';
+  if(/LENTES?|CONTACT/.test(up)) return 'lentes';
+  if(up === 'CL') return 'lentes';
+  return 'outro';
+}
+
+// Ordem de prioridade visual das franquias (do que mais importa pra menos)
+function ordenarFranquias(franquias){
+  const ordem = ['GLAUCOMA', 'PÓS-OP. & PATANOL S', 'POS-OP. & PATANOL S', 'DE&OH', 'CLC', 'CL'];
+  return [...franquias].sort((a, b) => {
+    const ia = ordem.findIndex(o => String(a).toUpperCase().trim() === o);
+    const ib = ordem.findIndex(o => String(b).toUpperCase().trim() === o);
+    if(ia === -1 && ib === -1) return a.localeCompare(b);
+    if(ia === -1) return 1;
+    if(ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
 function obterGruposRecuperacao(){
+  // Detectar todas as franquias disponíveis na base atual
   const todasFr = window.__franquiaResultado
     ? window.__franquiaResultado.map(l => l.franquia)
     : [...new Set(rawData.map(r => String(r[COLS.FRANQUIA] || '')).filter(f => f))];
-  const up = (s) => String(s).toUpperCase();
-  const match = (fr, termos) => termos.some(t => up(fr).includes(t));
-  return {
-    1: {nome: 'DE&OH + CLC', franquias: todasFr.filter(fr => match(fr, ['DE&OH', 'DEOH', 'DE & OH', 'CLC']))},
-    2: {nome: 'Glaucoma + Pós-Op', franquias: todasFr.filter(fr => match(fr, ['GLAUCOMA', 'PÓS', 'POS-OP', 'POS OP', 'PATANOL']))},
-    3: {nome: 'CL (Lentes)', franquias: todasFr.filter(fr => match(fr, ['LENTES', 'LENTE', 'CONTACT']) && !match(fr, ['CLC']))}
-  };
+  // Ordenar pela prioridade visual e gerar 1 grupo por franquia
+  const ordenadas = ordenarFranquias(todasFr);
+  const grupos = {};
+  ordenadas.forEach((fr, idx) => {
+    grupos[idx + 1] = {
+      nome: fr,
+      franquias: [fr], // 1 franquia por grupo (separadas)
+      tipo: classificarTipoFranquia(fr)
+    };
+  });
+  return grupos;
 }
 
 // Calcula diagnóstico real de um grupo de franquias (espelha o do PPT)
@@ -3696,9 +3732,11 @@ function diagnosticoGrupoRec(franquiasGrupo, per){
 // Gera array de ações (1-2 dinâmicas + 3-4 fixas) — espelha o do PPT
 function gerarAcoesPlanoRec(franquiasGrupo, diag){
   const acoes = [];
-  const isFarma = franquiasGrupo.some(f => /GLAUCOMA|PÓS|POS-OP|POS OP|PATANOL/i.test(f));
-  const isDEOHorCLC = franquiasGrupo.some(f => /DE&OH|DEOH|CLC/i.test(f));
-  const isLentes = franquiasGrupo.some(f => /LENTES|LENTE|CONTACT/i.test(f) && !/CLC/i.test(f));
+  // Tipo da franquia (cada grupo tem só 1 franquia agora, mas suporta múltiplas)
+  const tipos = franquiasGrupo.map(classificarTipoFranquia);
+  const isFarma = tipos.includes('farma');
+  const isDEOHorCLC = tipos.includes('deoh_clc');
+  const isLentes = tipos.includes('lentes');
 
   if(diag.topQuedasProd[0]){
     const p = diag.topQuedasProd[0];
@@ -3744,46 +3782,48 @@ function renderPlanoRecuperacao(per){
   card.style.display = 'block';
 
   const grupos = obterGruposRecuperacao();
+  // Ícone por tipo de franquia
+  const iconePorTipo = {farma:'💊', deoh_clc:'👁️', lentes:'🥽', outro:'📊'};
+
+  // Gerar botões dinamicamente (1 por franquia detectada)
+  const idsDisponiveis = Object.keys(grupos).map(Number);
+  // Se o grupo ativo atual não existe mais, voltar pro primeiro válido
+  if(!grupos[grupoRecAtivo]){
+    grupoRecAtivo = idsDisponiveis[0] || 1;
+  }
   const grAtivo = grupos[grupoRecAtivo];
+
+  // Renderizar botões
+  const btnContainer = document.getElementById('planoRecBotoes');
+  if(btnContainer){
+    btnContainer.innerHTML = idsDisponiveis.map(id => {
+      const g = grupos[id];
+      const ico = iconePorTipo[g.tipo] || '📊';
+      const active = id === grupoRecAtivo ? 'active' : '';
+      return `<button type="button" class="metric-btn ${active}" onclick="togglePlanoRecuperacao(${id})" style="font-size:11px" title="Franquia: ${g.nome}">${ico} ${g.nome}</button>`;
+    }).join('');
+  }
+
   if(!grAtivo || grAtivo.franquias.length === 0){
     document.getElementById('planoRecuperacaoContent').innerHTML =
       `<div style="text-align:center;padding:30px;color:var(--ink-muted);font-style:italic">
-        Nenhuma franquia do grupo "${grAtivo?.nome || ''}" encontrada na base atual.<br>
-        Tente outro grupo no toggle acima.
+        Nenhuma franquia detectada na base atual.<br>
+        Verifique os filtros de período/cliente aplicados.
       </div>`;
-    document.getElementById('planoRecAviso').textContent = `${grAtivo?.nome || ''} · sem franquias`;
+    document.getElementById('planoRecAviso').textContent = 'Sem franquias na base';
     return;
-  }
-
-  // Atualizar avisos dos botões com qtd de franquias
-  for(let i=1; i<=3; i++){
-    const btn = document.getElementById(`btnGrupoRec${i}`);
-    if(!btn) continue;
-    btn.classList.toggle('active', i === grupoRecAtivo);
-    const g = grupos[i];
-    const qtd = g.franquias.length;
-    if(qtd === 0){
-      btn.disabled = true;
-      btn.style.opacity = '0.4';
-      btn.style.cursor = 'not-allowed';
-      btn.title = 'Nenhuma franquia deste grupo na base';
-    } else {
-      btn.disabled = false;
-      btn.style.opacity = '';
-      btn.style.cursor = 'pointer';
-      btn.title = `${qtd} franquia(s): ${g.franquias.join(', ')}`;
-    }
   }
 
   const diag = diagnosticoGrupoRec(grAtivo.franquias, per);
   if(!diag){
     document.getElementById('planoRecuperacaoContent').innerHTML =
-      `<div style="text-align:center;padding:30px;color:var(--ink-muted);font-style:italic">Sem dados para este grupo no período selecionado.</div>`;
+      `<div style="text-align:center;padding:30px;color:var(--ink-muted);font-style:italic">Sem dados para "<b>${grAtivo.nome}</b>" no período selecionado.</div>`;
+    document.getElementById('planoRecAviso').textContent = `${grAtivo.nome} · sem dados`;
     return;
   }
 
   const mLabelR = METRICAS[metricaAtual].label;
-  document.getElementById('planoRecAviso').textContent = `${grAtivo.nome} · ${grAtivo.franquias.length} franquia(s) · ${per.labelAtual} vs ${per.labelComp || 'YA'}`;
+  document.getElementById('planoRecAviso').textContent = `${iconePorTipo[grAtivo.tipo]} ${grAtivo.nome} · ${per.labelAtual} vs ${per.labelComp || 'YA'}`;
 
   // Salvar estado para export
   window.__planoRecAtual = {grupo: grAtivo, diag, per, acoes: gerarAcoesPlanoRec(grAtivo.franquias, diag)};
@@ -4021,7 +4061,7 @@ function exportPlanoRecuperacaoExcel(){
     [],
     ['GRUPO', 'FRANQUIAS', 'SI ATUAL', 'SI COMP', 'VARIAÇÃO %', 'IMPACTO AÇÕES DINÂMICAS']
   ];
-  for(let i=1; i<=3; i++){
+  for(const i of Object.keys(grupos).map(Number)){
     const g = grupos[i];
     if(g.franquias.length === 0){
       sumAOA.push([g.nome, '—', 0, 0, 0, 0]);
@@ -4045,7 +4085,7 @@ function exportPlanoRecuperacaoExcel(){
 
   // Aba 2: Diagnóstico detalhado por grupo
   const diagAOA = [['GRUPO', 'TIPO', 'NOME', 'VALOR ATUAL', 'VALOR COMP', 'DELTA ABS', 'DELTA %']];
-  for(let i=1; i<=3; i++){
+  for(const i of Object.keys(grupos).map(Number)){
     const g = grupos[i];
     if(g.franquias.length === 0) continue;
     const diag = diagnosticoGrupoRec(g.franquias, per);
@@ -4079,7 +4119,7 @@ function exportPlanoRecuperacaoExcel(){
 
   // Aba 3: Plano de ação detalhado por grupo
   const acoesAOA = [['GRUPO', 'PRIORIDADE', 'ÁREA', 'AÇÃO TÁTICA', 'OWNER', 'PRAZO', 'IMPACTO $ ESTIMADO', 'TIPO']];
-  for(let i=1; i<=3; i++){
+  for(const i of Object.keys(grupos).map(Number)){
     const g = grupos[i];
     if(g.franquias.length === 0) continue;
     const diag = diagnosticoGrupoRec(g.franquias, per);
@@ -6258,17 +6298,34 @@ function renderTargetsFinanceiros(data, per){
     return;
   }
 
-  // Métrica atual: BRL ou UNID
-  const metrica = metricaAtual; // 'UNID', 'BRL', 'USD'
-  let campoTarget;
-  if(metrica === 'UNID') campoTarget = 'TARGET_UNID';
-  else if(metrica === 'BRL') campoTarget = 'TARGET_BRL';
-  else { // USD
+  // Métrica atual: BRL, UNID ou USD
+  const metrica = metricaAtual;
+  const mapCampo = {UNID: 'TARGET_UNID', BRL: 'TARGET_BRL', USD: 'TARGET_USD'};
+  const mapLabel = {UNID: 'Unidades', BRL: 'Reais (BRL)', USD: 'Dólares (USD)'};
+  const campoTarget = mapCampo[metrica];
+  if(!campoTarget){
+    content.innerHTML = `<div class="targets-fin-na">Métrica não suportada para targets.</div>`;
+    return;
+  }
+
+  // ⚠️ VERIFICAÇÃO: a coluna do target em uso tem valores preenchidos?
+  // Evita comparar Real com Target zerado (porque a coluna correspondente não foi preenchida)
+  const algumTargetPreenchido = targetsFinanceiros.some(t => (+t[campoTarget] || 0) > 0);
+  if(!algumTargetPreenchido){
+    // Verificar quais outras métricas têm target preenchido
+    const outras = Object.entries(mapCampo)
+      .filter(([m, _]) => m !== metrica)
+      .filter(([_, col]) => targetsFinanceiros.some(t => (+t[col] || 0) > 0))
+      .map(([m, _]) => mapLabel[m]);
+    const colunaFalta = campoTarget;
     content.innerHTML = `
-      <div class="targets-fin-na">
-        ℹ️ <b>Target USD não disponível</b><br>
-        Targets cadastrados apenas em BRL e Unidades.<br>
-        <span style="font-size:12px">Mude para "Reais" ou "Unidades" para ver atingimento.</span>
+      <div class="targets-fin-na" style="background:#FFFBEB;border-left:4px solid #F59E0B">
+        ⚠️ <b>Target em ${mapLabel[metrica]} não preenchido</b><br>
+        <span style="font-size:12px">A coluna <b>${colunaFalta}</b> do arquivo de targets está vazia ou zerada.</span><br>
+        ${outras.length > 0
+          ? `<span style="font-size:12px;color:#10B981;margin-top:8px;display:inline-block">✅ Há targets cadastrados em: <b>${outras.join(' · ')}</b>. Mude a métrica no topo da tela.</span>`
+          : `<span style="font-size:12px">Nenhuma outra métrica tem target cadastrado.</span>`}
+        <br><span style="font-size:11px;color:#64748b;font-style:italic;margin-top:6px;display:inline-block">Para evitar comparações inconsistentes, esta visualização foi suprimida.</span>
       </div>
     `;
     return;
@@ -10910,9 +10967,24 @@ async function exportPPTX(){
     // Helper: ações fixas por franquia + 1-2 dinâmicas com nomes reais
     function gerarAcoesPlano(franquiasGrupo, diag){
       const acoes = [];
-      const isFarmaPharma = franquiasGrupo.some(f => /GLAUCOMA|PÓS|POS-OP|POS OP|PATANOL/i.test(f));
-      const isDEOHorCLC = franquiasGrupo.some(f => /DE&OH|DEOH|CLC/i.test(f));
-      const isLentes = franquiasGrupo.some(f => /LENTES|LENTE|CONTACT/i.test(f) && !/CLC/i.test(f));
+      // Classificar cada franquia: 'farma' (Glaucoma, Pós-Op), 'deoh_clc' (DE&OH, CLC), 'lentes' (CL)
+      function tipoFr(nome){
+        const up = String(nome).toUpperCase().trim();
+        if(up === 'GLAUCOMA') return 'farma';
+        if(up === 'PÓS-OP. & PATANOL S' || up === 'POS-OP. & PATANOL S') return 'farma';
+        if(up === 'DE&OH') return 'deoh_clc';
+        if(up === 'CLC') return 'deoh_clc';
+        if(up === 'CL') return 'lentes';
+        // Fallback por keyword
+        if(/GLAUCOMA|PATANOL|PÓS-?OP|POS-?OP/.test(up)) return 'farma';
+        if(/DE&OH|DEOH|DE\s*&\s*OH/.test(up)) return 'deoh_clc';
+        if(/LENTES?|CONTACT/.test(up)) return 'lentes';
+        return 'outro';
+      }
+      const tipos = franquiasGrupo.map(tipoFr);
+      const isFarmaPharma = tipos.includes('farma');
+      const isDEOHorCLC = tipos.includes('deoh_clc');
+      const isLentes = tipos.includes('lentes');
 
       // 1-2 ações DINÂMICAS (top ofensores reais)
       if(diag.topQuedasProd[0]){
@@ -11161,25 +11233,26 @@ async function exportPPTX(){
       ], {x:0.3, y:7.0, w:12.7, h:0.25, valign:'middle'});
     }
 
-    // Detectar franquias disponíveis
+    // Detectar franquias disponíveis e ordenar por prioridade
     const todasFranqPR = window.__franquiaResultado
       ? window.__franquiaResultado.map(l => l.franquia)
       : [...new Set(base.map(r => String(r[COLS.FRANQUIA] || '')).filter(f => f))];
 
-    const upPR = (s) => String(s).toUpperCase();
-    const matchFrPR = (fr, termos) => termos.some(t => upPR(fr).includes(t));
+    // Ordem desejada: Glaucoma, Pós-Op, DE&OH, CLC, CL (do mais crítico/farma pro mais lento)
+    const ordemPR = ['GLAUCOMA', 'PÓS-OP. & PATANOL S', 'POS-OP. & PATANOL S', 'DE&OH', 'CLC', 'CL'];
+    const franqsOrdenadasPR = [...todasFranqPR].sort((a, b) => {
+      const ia = ordemPR.findIndex(o => String(a).toUpperCase().trim() === o);
+      const ib = ordemPR.findIndex(o => String(b).toUpperCase().trim() === o);
+      if(ia === -1 && ib === -1) return a.localeCompare(b);
+      if(ia === -1) return 1;
+      if(ib === -1) return -1;
+      return ia - ib;
+    });
 
-    // Grupo 1: DE&OH + CLC
-    const grPR1 = todasFranqPR.filter(fr => matchFrPR(fr, ['DE&OH', 'DEOH', 'DE & OH', 'CLC']));
-    // Grupo 2: GLAUCOMA + PÓS-OP/PATANOL
-    const grPR2 = todasFranqPR.filter(fr => matchFrPR(fr, ['GLAUCOMA', 'PÓS', 'POS-OP', 'POS OP', 'PATANOL']));
-    // Grupo 3: CL/LENTES (exceto CLC)
-    const grPR3 = todasFranqPR.filter(fr => matchFrPR(fr, ['LENTES', 'LENTE', 'CONTACT']) && !matchFrPR(fr, ['CLC']));
-
-    // Gerar slides para cada grupo com franquias presentes
-    if(grPR1.length > 0) gerarSlidesPlanoGrupo(grPR1.join(' + '), grPR1);
-    if(grPR2.length > 0) gerarSlidesPlanoGrupo(grPR2.join(' + '), grPR2);
-    if(grPR3.length > 0) gerarSlidesPlanoGrupo(grPR3.join(' + '), grPR3);
+    // Gerar 1 par de slides (Diagnóstico + Plano) por franquia INDIVIDUAL
+    franqsOrdenadasPR.forEach(fr => {
+      gerarSlidesPlanoGrupo(fr, [fr]);
+    });
 
     // Salvar
     // Salvar

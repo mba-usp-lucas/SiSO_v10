@@ -1,67 +1,66 @@
-# v10 - Plano de Recuperação INTEGRADO ao HTML
+# v10 - Target USD adicionado
 
-## ✨ Novo card "🚀 Plano de Recuperação" no dashboard
+## ✨ Suporte a TARGET_USD
 
-Espelha a lógica dos 6 slides do PPT, mas dentro do HTML com interatividade.
+### Antes
+O dashboard só comparava em BRL e Unidades. Se você selecionasse USD no topo,
+aparecia mensagem "Target USD não disponível".
 
-### Estrutura do card
-- **Toggle entre 3 grupos** de franquias:
-  - 1️⃣ DE&OH + CLC
-  - 2️⃣ Glaucoma + Pós-Op/Patanol S
-  - 3️⃣ CL (Lentes)
-- Botões automaticamente desabilitados se o grupo não tem franquias na base
-- Tooltip mostra quais franquias estão em cada grupo
+### Agora
+USD é métrica de primeira classe: mesma estrutura de BRL e UNID.
 
-### Para cada grupo, dois blocos
+## 📝 Mudanças
 
-**📊 Diagnóstico (100% dados reais)**
-- 4 KPIs: SI Atual, Variação YoY, Volume UNID, Franquias
-- Decomposição V × P × Mix (com barras de % do efeito)
-- SI × SO da franquia (variação + diagnóstico empurrado/demanda/alinhado)
-- Top 3 produtos em queda (com valor e %)
-- Top 3 clientes em queda (com valor e %)
+### 1. Modelo Excel (Targets_Financeiros_modelo.xlsx)
+Adicionada coluna **TARGET_USD** (com fundo verde claro pra destacar).
+Estrutura final: 7 colunas
 
-**🎯 Plano de Ação (fixas + dinâmicas)**
-- Tabela com 4-6 ações priorizadas (P1/P2/P3)
-- **Ações DINÂMICAS** (marcadas com tag amarela): usam o nome real do top ofensor
-  - "Plano de defesa de [PRODUTO REAL]"
-  - "Reativar [CLIENTE REAL]"
-  - Impacto $ = 40-50% da queda observada
-- **Ações FIXAS**: sugestões padrão por tipo de franquia (farma, DE&OH/CLC, lentes)
-- Impacto total estimado em destaque verde
-- Disclaimer metodológico explicando como interpretar
+| FRANQUIA | PRODUTO | ANO | MES_NUM | TARGET_BRL | TARGET_UNID | TARGET_USD |
 
-### Export Excel completo
-Botão "📥 Excel" no card gera arquivo com 4 abas:
-- **Sumário**: visão geral dos 3 grupos (SI, var %, impacto)
-- **Diagnóstico**: KPIs, decomposição, SI×SO e tops por grupo
-- **Plano de Ação**: todas as ações de todos os grupos (com tipo Fixa/Dinâmica)
-- **Metodologia**: explicação completa da lógica
+### 2. Carregamento do arquivo
+- Novo campo `TARGET_USD` lido do arquivo (opcional, default = 0)
+- Mensagem de erro atualizada para incluir a nova coluna
+- **Retrocompatível**: arquivos antigos sem TARGET_USD continuam funcionando
 
-## 🔧 Bugfix lateral
-- `window.__perAtual` agora é salvo (estava sendo lido em vários lugares mas nunca atribuído — bug pré-existente)
+### 3. Renderização do card
+Lógica refatorada com mapa de métricas:
+```js
+mapCampo = {UNID: 'TARGET_UNID', BRL: 'TARGET_BRL', USD: 'TARGET_USD'}
+mapLabel = {UNID: 'Unidades', BRL: 'Reais (BRL)', USD: 'Dólares (USD)'}
+```
+
+### 4. Aviso quando coluna vazia (melhorado)
+Agora detecta TODAS as métricas preenchidas, não só uma:
+- Se UNID vazia mas BRL e USD preenchidos → "✅ Há targets em: Reais (BRL) · Dólares (USD)"
+- Cobertura completa dos 3 cenários (UNID/BRL/USD)
 
 ## ✅ Validações
-- Sintaxe JS OK (ambos scripts inline)
+- Sintaxe JS OK
 - Python rodou end-to-end (HTML 0.60 MB)
-- Card aparece no nav: 🚀 Recuperação
-- Toggle entre grupos funcional
+- Modelo Excel validado (180 linhas, 7 colunas, 2 abas)
+- Teste do cenário "BRL + USD preenchidos, UNID vazio":
+  - BRL → dashboard normal ✅
+  - UNID → aviso sugerindo BRL e USD ✅
+  - USD → dashboard normal ✅
 
 ## 🧪 Como testar
 
-1. Substitua **dashboard_template_v10.html** no projeto
+### Para usar o novo modelo
+1. Use o novo arquivo **Targets_Financeiros_modelo.xlsx** (ou adicione coluna TARGET_USD no seu arquivo atual)
+2. Preencha os valores em USD nos meses/produtos que quiser
+3. Aponte o PATH_TARGETS_FIN do Python pro arquivo
+
+### Para validar no dashboard
+1. Substitua **dashboard_template_v10.html**
 2. Rode `python sales_dashboard_v10.py`
-3. Abra o HTML
-4. No nav, clique em **🚀 Recuperação**
-5. Use os botões para alternar entre os 3 grupos
-6. Veja: diagnóstico com dados reais + plano de ação com 1-2 ações dinâmicas (com nome do top ofensor)
-7. Clique em **📥 Excel** para exportar tudo (4 abas)
+3. Abra o card "Targets Financeiros"
+4. Clique no toggle **USD** no topo da tela
+5. Veja atingimento em USD (Real USD vs Target USD)
+6. Tabela "Detalhe por Produto" também respeita USD
 
-## 📌 Paridade com o PPT
-O card HTML tem a MESMA lógica dos 6 slides do PPT:
-- Mesmas franquias agrupadas
-- Mesma estrutura de diagnóstico
-- Mesmas regras de ações dinâmicas
-- Mesmo cálculo de impacto (40-50% da queda)
-
-Diferença: o HTML mostra um grupo por vez (com toggle), o PPT mostra os 3 grupos em sequência (6 slides).
+## 💡 Flexibilidade
+Você pode preencher apenas as métricas que precisar:
+- Só BRL → atingimento em Reais
+- Só USD → atingimento em Dólares (NOVO)
+- Mix de BRL + USD → mude o toggle conforme a apresentação
+- Pular UNID se não tem target em unidades
