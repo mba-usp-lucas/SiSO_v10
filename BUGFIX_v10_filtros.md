@@ -1,86 +1,90 @@
-# v10 - Solução para erro "SheetJS não carregada" em ambiente corporativo
+# v10 - 2 correções
 
-## 🐛 Problema reportado
-Ao clicar em exportar Excel: "Biblioteca de exportação (SheetJS) não carregada".
+## 1️⃣ Bug do Resumo × KPI · agora batem 100%
 
-## 🔍 Causa raiz
-1. As bibliotecas JS (Chart.js, SheetJS, PptxGenJS, etc.) eram carregadas via CDN
-2. Computadores corporativos da Alcon bloqueiam CDNs externos (firewall)
-3. Quando o Python rodava no corporativo, falhava em baixar do CDN
-4. HTML era gerado SEM as libs embutidas → comportamento quebrado
+### Causa real
+A função `clienteBate` no Resumo usava match por palavra-chave SEMPRE,
+mesmo quando havia filtro de cliente ativo. Isso causava divergência
+quando alguma linha tinha nome diferente da keyword (ex: "Sta Cruz",
+"Santa Cruz Drogarias", etc).
 
-## ✅ Correção implementada
+### Correção
+A função agora tem 2 modos:
+- **Sem filtro de cliente**: usa palavra-chave (consolida grupo econômico) ✓
+- **Com filtro de cliente**: usa **match exato dos selecionados** (igual KPI) ✓
 
-### 1. Pasta local de libs (fallback robusto)
-Python agora procura as libs em `./libs_local/` ANTES de tentar o CDN:
+Quando você filtra "Santa Cruz" no KPI, o Resumo agora soma EXATAMENTE
+os mesmos registros (cliente.toUpperCase() === "SANTA CRUZ"). Outras linhas
+do Resumo (Brasil/Raia/DPSP/etc) aparecem zeradas ou só com o que foi
+selecionado.
+
+### Aviso atualizado
+Não diz mais "pode haver diferença" - agora diz:
+> ✅ Filtro ativo · valores alinhados com o KPI
+
+## 2️⃣ libs_local não carregando
+
+### Causa
+O Python procurava `libs_local` como caminho RELATIVO. Se você rodava o
+script de outra pasta (ex: VSCode aberto na pasta pai), ele não encontrava
+a pasta mesmo estando ao lado do `.py`.
+
+### Correção (3 melhorias)
+
+#### a) Caminho absoluto baseado na localização do .py
+```python
+LIBS_LOCAL_DIR = Path(__file__).parent / "libs_local"
 ```
-INSIGHTS/
-├── sales_dashboard_v10.py
-├── libs_local/             ← NOVA PASTA
-│   ├── xlsx.full.min.js
-│   ├── chart.umd.min.js
-│   ├── pptxgen.bundle.js
-│   └── chartjs-plugin-datalabels.min.js
+Agora sempre acha, independente de onde você rodou.
+
+#### b) Diagnóstico explícito no console
+Logo no início, mostra:
+- Onde está procurando (caminho completo)
+- Se a pasta existe
+- Quais arquivos .js tem dentro
+
+Exemplo do que aparece agora:
+```
+  EMBEDDING DE BIBLIOTECAS EXTERNAS
+  Pasta local: C:\Users\PEREILU3\OneDrive\...\libs_local
+  Arquivos .js encontrados: 4
+    - chart.umd.min.js
+    - chartjs-plugin-datalabels.min.js
+    - pptxgen.bundle.js
+    - xlsx.full.min.js
 ```
 
-### 2. Função `carregar_lib` em camadas
-- 1º: tenta pasta local (`libs_local/`)
-- 2º: fallback para CDN
-- 3º: se ambos falharem, imprime aviso BEM visível no console
-
-### 3. Aviso claro quando libs faltam
-Console agora mostra:
+#### c) Aviso CRÍTICO se sobrou tag CDN no HTML
+Se por qualquer motivo o embed falhou e ficou `<script src="cdn...">`
+no HTML, o console grita:
 ```
-!!! ATENCAO: 1 biblioteca(s) NAO embutida(s) !!!
-!  - SheetJS (xlsx)
-!  Funcoes que dependem destas libs vao falhar no HTML.
-!  SOLUCAO: copie os arquivos .js para ./libs_local/
+!!! CRITICO: 4 tag(s) <script src=cdn...> ainda no HTML!
+!  HTML NAO funcionara em ambientes que bloqueiam CDN.
+!  Verifique se libs_local/ tem todos os arquivos .js corretos.
 ```
 
-### 4. Mensagens de erro melhoradas no HTML
-Antes: "Biblioteca de exportação (SheetJS) não carregada."
-Agora explica: precisa rodar com `libs_local/` ou regerar em outro ambiente.
-
-### 5. Fallback CDN dinâmico removido do exportOnePager
-Havia código que tentava carregar PptxGenJS via CDN em runtime se não estivesse
-disponível (também falharia no corporativo). Substituído por mensagem clara.
-
-## 📦 Arquivos entregues
-
-### libs_local.zip (536K)
-ZIP com as 4 bibliotecas .js. Você descompacta e coloca a pasta `libs_local/`
-ao lado do `sales_dashboard_v10.py`.
-
-### LEIA_PRIMEIRO_libs_local.md
-Instruções passo-a-passo de como configurar.
-
-### dashboard_template_v10.html + sales_dashboard_v10.py
-Versões atualizadas.
+Agora você não fica adivinhando: o console diz exatamente o problema
+e a solução.
 
 ## ✅ Validações
-- Sintaxe Python OK
-- Sintaxe JS OK
-- Teste end-to-end com libs locais:
-  - 4 libs embutidas ✅
-  - 0 referências a CDN no HTML final ✅
-  - SheetJS confirmado embutido (9 refs internas) ✅
-  - HTML 2.14 MB (inclui as libs)
+- Sintaxe Python e JS OK
+- Cenário COM libs_local: 4 embutidas, 0 CDN, console limpo ✅
+- Cenário SEM libs_local: 4 avisos críticos visíveis ✅
+- Teste alinhamento KPI × Resumo: bate 100% com filtro ativo ✅
 
-## 🧪 Como aplicar a correção (no seu PC corporativo)
+## 🧪 Como testar (no seu PC corporativo)
 
-1. Baixe **libs_local.zip**
-2. Descompacte na MESMA pasta do seu `sales_dashboard_v10.py`
-   → vai criar a pasta `libs_local/` com 4 arquivos .js
-3. Substitua **sales_dashboard_v10.py** pela nova versão
-4. Substitua **dashboard_template_v10.html** pela nova versão
-5. Rode o Python: `python sales_dashboard_v10.py`
-6. No console verá `[LOCAL]` em vez de `Baixando do CDN`
-7. Abra o HTML gerado
-8. Clique em exportar Excel → vai funcionar ✅
+1. Substitua `sales_dashboard_v10.py`
+2. Substitua `dashboard_template_v10.html`
+3. Confirme que `libs_local/` está na MESMA pasta do `.py` (não em subpasta)
+4. Rode `python sales_dashboard_v10.py`
+5. **Olhe o console**: deve aparecer `[LOCAL] SheetJS (xlsx): 639,123 bytes`
+   - Se aparecer "AVISO: pasta NAO existe" → caminho errado
+   - Se aparecer "[LOCAL] X: arquivo NAO encontrado" → faltam arquivos na pasta
+   - Se aparecer "CRITICO: tags <script src=cdn...>" → não embutiu corretamente
+6. Abra o HTML → exportar Excel → funciona ✅
+7. Selecione um cliente no filtro → KPI e Resumo mostram o mesmo número ✅
 
-## 💡 Vantagem permanente
-Depois dessa correção, NUNCA mais vai depender de CDN. O HTML gerado
-funciona 100% offline. Bom pra:
-- Mandar por email para outros usuários
-- Apresentar em lugares sem internet
-- Funcionar mesmo se o firewall corporativo mudar políticas
+## 💡 Se ainda der erro de SheetJS
+Mande print do console exatamente como aparece após `EMBEDDING DE BIBLIOTECAS`.
+Com esse log eu identifico o problema em 1 minuto.

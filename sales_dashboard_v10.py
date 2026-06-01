@@ -35,14 +35,17 @@ EMBUTIR_LIBS = True
 # =========================================================
 # PASTA LOCAL DE BIBLIOTECAS (fallback para ambientes corporativos que bloqueiam CDN)
 # Se a lib estiver nesta pasta, usa local. Caso contrario, tenta baixar do CDN.
+# A pasta e procurada SEMPRE ao lado do script Python (caminho absoluto).
 # Estrutura esperada:
-#   libs_local/
-#     xlsx.full.min.js
-#     chart.umd.min.js
-#     pptxgen.bundle.js
-#     chartjs-plugin-datalabels.min.js
+#   <pasta do script>/
+#     sales_dashboard_v10.py
+#     libs_local/
+#       xlsx.full.min.js
+#       chart.umd.min.js
+#       pptxgen.bundle.js
+#       chartjs-plugin-datalabels.min.js
 # =========================================================
-LIBS_LOCAL_DIR = "libs_local"
+LIBS_LOCAL_DIR = Path(__file__).parent / "libs_local"
 
 # Filtro de canal: "farmacia" = so farmacia | "" = todos os canais
 FILTRO_CANAL_PADRAO = "farmacia"
@@ -127,14 +130,16 @@ def carregar_lib(lib):
     local_file = lib.get("local_file")
     # 1) Tenta pasta local
     if local_file:
-        local_path = Path(LIBS_LOCAL_DIR) / local_file
+        local_path = LIBS_LOCAL_DIR / local_file
         if local_path.exists():
             try:
                 content = local_path.read_text(encoding="utf-8")
-                print(f"  [LOCAL] {nome}: {len(content):,} bytes  (arquivo: {local_path})")
+                print(f"  [LOCAL] {nome}: {len(content):,} bytes  ({local_path})")
                 return content, "local"
             except Exception as e:
                 print(f"  [LOCAL] {nome}: erro lendo {local_path}: {e}")
+        else:
+            print(f"  [LOCAL] {nome}: arquivo NAO encontrado em {local_path}")
     # 2) Fallback: CDN
     print(f"  Baixando {nome} do CDN...")
     ctx = ssl.create_default_context()
@@ -146,7 +151,7 @@ def carregar_lib(lib):
             return content, "cdn"
     except Exception as e:
         print(f"     [CDN]   ERRO {nome}: {e}")
-        print(f"     >> Coloque o arquivo '{local_file}' em '{LIBS_LOCAL_DIR}/' como fallback")
+        print(f"     >> Coloque o arquivo '{local_file}' em '{LIBS_LOCAL_DIR}'")
         return None, None
 
 
@@ -168,7 +173,17 @@ def baixar_lib(url, name):
 def embutir_libs_externas(html_content):
     print("\n" + "=" * 60)
     print("  EMBEDDING DE BIBLIOTECAS EXTERNAS")
-    print(f"  Pasta local: ./{LIBS_LOCAL_DIR}/")
+    print(f"  Pasta local: {LIBS_LOCAL_DIR}")
+    if LIBS_LOCAL_DIR.exists():
+        arquivos_js = sorted([p.name for p in LIBS_LOCAL_DIR.iterdir() if p.suffix == '.js'])
+        if arquivos_js:
+            print(f"  Arquivos .js encontrados: {len(arquivos_js)}")
+            for a in arquivos_js:
+                print(f"    - {a}")
+        else:
+            print(f"  AVISO: pasta existe mas nao tem arquivos .js")
+    else:
+        print(f"  AVISO: pasta NAO existe. Sera tentado o CDN para todas as libs.")
     print("=" * 60)
     html = html_content
     ok = 0
@@ -196,8 +211,17 @@ def embutir_libs_externas(html_content):
     html = html.replace("</head>", FONT_FALLBACK_CSS + "\n</head>", 1)
     cdn = len(re.findall(r'cdn\.jsdelivr\.net', html))
     gf = len(re.findall(r'fonts\.googleapis\.com', html))
+    # Contar especificamente tags <script src="cdn..."> (que sao o problema critico)
+    tags_cdn = len(re.findall(r'<script[^>]+src\s*=\s*["\']https?://cdn\.jsdelivr\.net', html))
     print(f"  Embutidas: {ok}  |  Erros: {erros}")
     print(f"  CDN: {cdn} {'OK' if cdn==0 else 'VERIFICAR'} | Google: {gf} {'OK' if gf==0 else 'VERIFICAR'}")
+    if tags_cdn > 0:
+        print()
+        print("  " + "!" * 56)
+        print(f"  !  CRITICO: {tags_cdn} tag(s) <script src=cdn...> ainda no HTML!")
+        print(f"  !  HTML NAO funcionara em ambientes que bloqueiam CDN.")
+        print(f"  !  Verifique se libs_local/ tem todos os arquivos .js corretos.")
+        print("  " + "!" * 56)
     if erros > 0:
         print()
         print("  " + "!" * 56)
@@ -205,7 +229,8 @@ def embutir_libs_externas(html_content):
         for nome in erros_lista:
             print(f"  !  - {nome}")
         print(f"  !  Funcoes que dependem destas libs vao falhar no HTML.")
-        print(f"  !  SOLUCAO: copie os arquivos .js para ./{LIBS_LOCAL_DIR}/")
+        print(f"  !  SOLUCAO: copie os arquivos .js para:")
+        print(f"  !  {LIBS_LOCAL_DIR}")
         print("  " + "!" * 56)
     print("=" * 60)
     return html, ok, erros
