@@ -32,6 +32,18 @@ PATH_NAO_MAPEADOS = r"produtos_nao_mapeados.csv"
 
 EMBUTIR_LIBS = True
 
+# =========================================================
+# PASTA LOCAL DE BIBLIOTECAS (fallback para ambientes corporativos que bloqueiam CDN)
+# Se a lib estiver nesta pasta, usa local. Caso contrario, tenta baixar do CDN.
+# Estrutura esperada:
+#   libs_local/
+#     xlsx.full.min.js
+#     chart.umd.min.js
+#     pptxgen.bundle.js
+#     chartjs-plugin-datalabels.min.js
+# =========================================================
+LIBS_LOCAL_DIR = "libs_local"
+
 # Filtro de canal: "farmacia" = so farmacia | "" = todos os canais
 FILTRO_CANAL_PADRAO = "farmacia"
 
@@ -44,16 +56,16 @@ FILTRO_CANAL_PADRAO = "farmacia"
 TAXA_BRL_USD = 5.37
 
 CDN_LIBS = [
-    {"name": "Chart.js", "version": "4.4.0",
+    {"name": "Chart.js", "version": "4.4.0", "local_file": "chart.umd.min.js",
      "url": "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js",
      "pattern": r'<script\s+src="https://cdn\.jsdelivr\.net/npm/chart\.js@4\.4\.0/dist/chart\.umd\.min\.js"\s*>\s*</script>'},
-    {"name": "SheetJS (xlsx)", "version": "0.18.5",
+    {"name": "SheetJS (xlsx)", "version": "0.18.5", "local_file": "xlsx.full.min.js",
      "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
      "pattern": r'<script\s+src="https://cdn\.jsdelivr\.net/npm/xlsx@0\.18\.5/dist/xlsx\.full\.min\.js"\s*>\s*</script>'},
-    {"name": "PptxGenJS", "version": "3.12.0",
+    {"name": "PptxGenJS", "version": "3.12.0", "local_file": "pptxgen.bundle.js",
      "url": "https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js",
      "pattern": r'<script\s+src="https://cdn\.jsdelivr\.net/npm/pptxgenjs@3\.12\.0/dist/pptxgen\.bundle\.js"\s*>\s*</script>'},
-    {"name": "ChartJS DataLabels", "version": "2.2.0",
+    {"name": "ChartJS DataLabels", "version": "2.2.0", "local_file": "chartjs-plugin-datalabels.min.js",
      "url": "https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js",
      "pattern": r'<script\s+src="https://cdn\.jsdelivr\.net/npm/chartjs-plugin-datalabels@2\.2\.0/dist/chartjs-plugin-datalabels\.min\.js"\s*>\s*</script>'},
 ]
@@ -108,7 +120,38 @@ def _norm_franq(s):
 # EMBEDDING
 # =========================================================
 
+def carregar_lib(lib):
+    """Tenta carregar a biblioteca: primeiro da pasta local, depois do CDN.
+    Retorna (conteudo_js, origem) onde origem = 'local' ou 'cdn' ou None."""
+    nome = lib["name"]
+    local_file = lib.get("local_file")
+    # 1) Tenta pasta local
+    if local_file:
+        local_path = Path(LIBS_LOCAL_DIR) / local_file
+        if local_path.exists():
+            try:
+                content = local_path.read_text(encoding="utf-8")
+                print(f"  [LOCAL] {nome}: {len(content):,} bytes  (arquivo: {local_path})")
+                return content, "local"
+            except Exception as e:
+                print(f"  [LOCAL] {nome}: erro lendo {local_path}: {e}")
+    # 2) Fallback: CDN
+    print(f"  Baixando {nome} do CDN...")
+    ctx = ssl.create_default_context()
+    try:
+        req = urllib.request.Request(lib["url"], headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
+            content = resp.read().decode("utf-8")
+            print(f"     [CDN]   OK {nome}: {len(content):,} bytes")
+            return content, "cdn"
+    except Exception as e:
+        print(f"     [CDN]   ERRO {nome}: {e}")
+        print(f"     >> Coloque o arquivo '{local_file}' em '{LIBS_LOCAL_DIR}/' como fallback")
+        return None, None
+
+
 def baixar_lib(url, name):
+    """Mantida para compatibilidade. Usa apenas CDN."""
     print(f"  Baixando {name}...")
     ctx = ssl.create_default_context()
     try:
@@ -125,14 +168,16 @@ def baixar_lib(url, name):
 def embutir_libs_externas(html_content):
     print("\n" + "=" * 60)
     print("  EMBEDDING DE BIBLIOTECAS EXTERNAS")
+    print(f"  Pasta local: ./{LIBS_LOCAL_DIR}/")
     print("=" * 60)
     html = html_content
     ok = 0
     erros = 0
+    erros_lista = []
     for lib in CDN_LIBS:
-        js = baixar_lib(lib["url"], lib["name"])
+        js, origem = carregar_lib(lib)
         if js:
-            tag = '<script>\n/* ' + lib["name"] + ' v' + lib["version"] + ' */\n' + js + '\n</script>'
+            tag = '<script>\n/* ' + lib["name"] + ' v' + lib["version"] + ' (' + (origem or '?') + ') */\n' + js + '\n</script>'
             m = re.search(lib["pattern"], html, flags=re.IGNORECASE)
             if m:
                 html = html.replace(m.group(0), tag)
@@ -142,6 +187,7 @@ def embutir_libs_externas(html_content):
                 ok += 1
         else:
             erros += 1
+            erros_lista.append(lib["name"])
     for pat in GOOGLE_FONTS_PATTERNS:
         m = re.search(pat, html, flags=re.IGNORECASE)
         while m:
@@ -150,7 +196,17 @@ def embutir_libs_externas(html_content):
     html = html.replace("</head>", FONT_FALLBACK_CSS + "\n</head>", 1)
     cdn = len(re.findall(r'cdn\.jsdelivr\.net', html))
     gf = len(re.findall(r'fonts\.googleapis\.com', html))
+    print(f"  Embutidas: {ok}  |  Erros: {erros}")
     print(f"  CDN: {cdn} {'OK' if cdn==0 else 'VERIFICAR'} | Google: {gf} {'OK' if gf==0 else 'VERIFICAR'}")
+    if erros > 0:
+        print()
+        print("  " + "!" * 56)
+        print(f"  !  ATENCAO: {erros} biblioteca(s) NAO embutida(s)!")
+        for nome in erros_lista:
+            print(f"  !  - {nome}")
+        print(f"  !  Funcoes que dependem destas libs vao falhar no HTML.")
+        print(f"  !  SOLUCAO: copie os arquivos .js para ./{LIBS_LOCAL_DIR}/")
+        print("  " + "!" * 56)
     print("=" * 60)
     return html, ok, erros
 
