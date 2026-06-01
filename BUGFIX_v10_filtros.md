@@ -1,84 +1,48 @@
-# v10 - Target Financeiro no PPT + diagnóstico de libs
+# v10 - Insight Rápido enriquecido no PowerPoint
 
-## 1️⃣ Target Financeiro no PowerPoint (NOVO)
+## 🎯 Problema
+O card "Insight Rápido" do HTML mostrava análise rica (MACRO Brasil com
+Performance, Decomposição, Concentração, Sell-out cruzado), mas no PPT
+o bloco GERAL estava resumido a 2-3 linhas.
 
-### Antes
-O PPT exportado não tinha slide de Targets Financeiros, mesmo se o arquivo
-de targets estivesse carregado.
+## ✅ Correção
+O bloco GERAL (consolidado) de cada slide de Insight Rápido no PPT agora
+traz os MESMOS insights do MACRO do HTML:
 
-### Agora
-Se o arquivo `Targets_Financeiros.xlsx` tem dados na métrica atual,
-o PPT gera **1 slide completo** com:
+### Antes (PPT)
+- Variação % do grupo
+- UNID/BRL
+- Decomposição (só %)
 
-- **3 cards principais** (cor adaptativa: verde/laranja/vermelho)
-  - 📅 Atingimento do mês atual (Real vs Target)
-  - 📊 YTD (Jan→mês: Real acumulado vs Target acumulado)
-  - 🎯 Ano completo (projeção anualizada vs Target ano)
-- **Tabela detalhada por produto** (Top 8 piores gaps primeiro)
-  - Produto · Real YTD · Target YTD · Gap absoluto · Atingimento %
-  - Cada linha colorida pelo status (✅⚠️🚨)
+### Agora (PPT) - igual ao HTML
+1. **Variação consolidada** (cabeçalho)
+2. **Performance** com driver (volume vs preço/mix, com pp de diferença)
+3. **Decomposição** Volume/Preço/Mix COM valores absolutos (não só %)
+4. **Concentração** Top 5 clientes do grupo (com alerta se ≥80%)
+5. **Sell-out cruzado**: diagnóstico de estoque empurrado / demanda /
+   ruptura / equilíbrio (mesma lógica do HTML)
 
-O slide é gerado entre os slides de Decomposição e os de Plano de Recuperação.
+### Detalhe por franquia (mantido)
+Cada franquia continua com suas 6 dimensões (Performance, Driver, SI×SO,
+Top produtos, Movers, Top clientes).
 
-### Respeita filtros
-- Filtro de franquia do dashboard é aplicado também no slide
-- Métrica selecionada (BRL/UNID/USD) define qual coluna de target usar
-- Se nenhuma target preenchida na métrica → o slide não é gerado
-
-## 2️⃣ Banner de diagnóstico se libs não carregaram
-
-### Problema
-Se uma das libs (SheetJS, Chart.js, PptxGenJS) não carregar no browser,
-o usuário só descobre quando clica num botão de export e dá alert.
-
-### Correção
-Adicionado um **banner no topo do dashboard** que detecta automaticamente
-quais libs estão faltando ao carregar a página. Se algo falhar, aparece:
-
-```
-⚠️ Bibliotecas JavaScript não carregaram
-Faltam: SheetJS (exportar Excel), Chart.js (gráficos)
-Algumas funções podem não funcionar. Regere o HTML com a pasta libs_local/
-ao lado do script Python.
-```
-
-Console também loga:
-```
-✅ Todas as bibliotecas carregadas: SheetJS, Chart.js, PptxGenJS
-```
-ou
-```
-❌ Bibliotecas não carregadas: SheetJS (exportar Excel)
-```
-
-## 3️⃣ Sobre o erro do Excel
-Se você está com erro "SheetJS não carregada":
-1. Abra o HTML no browser
-2. Olha se aparece o banner vermelho no topo
-3. Se aparecer → o HTML gerado pelo Python está sem a lib embutida
-4. Volte ao terminal e olhe o output do `python sales_dashboard_v10.py`
-5. Procure pela seção `EMBEDDING DE BIBLIOTECAS EXTERNAS`
-6. Confirme que aparece `[LOCAL] SheetJS (xlsx): 639,123 bytes`
-
-Se aparecer **`AVISO: pasta NAO existe`** → o `libs_local/` não está ao lado do `.py`
-Se aparecer **`arquivo NAO encontrado`** → o `xlsx.full.min.js` não está dentro de libs_local
-Se aparecer **`CRITICO: tags <script src=cdn>`** → mande print pra eu olhar
+## 🔧 Implementação
+- Nova função `calcularSOFranquiaMulti()` no exportPPTX: consolida sell-out
+  de um conjunto de franquias (para o bloco GERAL do grupo)
+- Bloco GERAL reescrito com os 5 insights do MACRO
+- Fonte adaptativa: se o slide tem muitos bullets (>14), reduz a fonte
+  automaticamente (13→12 header, 11→10→9.5 bullets) para caber tudo
 
 ## ✅ Validações
 - Sintaxe JS OK (3 scripts inline)
-- Python rodou end-to-end (HTML 2.15 MB)
-- 0 tags CDN no HTML final
-- SheetJS embutido confirmado
-- Slide Target Financeiro presente no exportPPTX
-- Banner de erro adicionado e funcional
+- Python rodou end-to-end (HTML gerado)
+- Fonte adaptativa evita overflow do slide
 
 ## 🧪 Como testar
-
-1. Substitua `dashboard_template_v10.html`
-2. Rode `python sales_dashboard_v10.py`
-3. **Confirme no console**: aparece `[LOCAL] SheetJS (xlsx): 639,123 bytes`
-4. Abra o HTML
-5. **No topo da página**: NÃO deve aparecer banner vermelho (se aparecer, falta lib)
-6. Console do browser (F12): deve aparecer `✅ Todas as bibliotecas carregadas`
-7. Clique em exportar Excel → funciona ✅
-8. Clique em exportar PowerPoint → role até o slide "Targets Financeiros" ✅
+1. Substitua dashboard_template_v10.html (e leve o xlsx.mini.min.js)
+2. Rode python sales_dashboard_v10.py
+3. Exporte PowerPoint
+4. Veja os 3 slides de Insight Rápido:
+   - Slide 1 (GERAL + DE&OH + CLC): bloco GERAL agora tem Performance,
+     Decomposição com valores, Concentração e Sell-out cruzado
+   - Compare com o card "Insight Rápido" do HTML → mesmos insights

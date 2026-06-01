@@ -9374,6 +9374,30 @@ async function exportPPTX(){
       return temSO ? {soA, soC, soVar: soC ? ((soA-soC)/soC*100) : (soA>0?100:0)} : null;
     }
 
+    // Versão para CONJUNTO de franquias (consolida sell-out do grupo)
+    function calcularSOFranquiaMulti(franquiasArr){
+      if(!rawDataSellout || rawDataSellout.length === 0 || !selloutUltimoPeriodo) return null;
+      const ultMesSO = selloutUltimoPeriodo;
+      function temNoSO(p){ return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes); }
+      let perSOAtual = per.periodoAtual.filter(temNoSO);
+      if(perSOAtual.length === 0) perSOAtual = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
+      const perSOComp = perSOAtual.map(p => ({ano: p.ano-1, mes: p.mes}));
+      const setAtSO = new Set(perSOAtual.map(p => `${p.ano}-${p.mes}`));
+      const setCpSO = new Set(perSOComp.map(p => `${p.ano}-${p.mes}`));
+      const frSet = new Set(franquiasArr.map(f => String(f).toUpperCase()));
+      let soA = 0, soC = 0;
+      for(const r of rawDataSellout){
+        if(!selloutCanalOk(r)) continue;
+        if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
+        if(!frSet.has(String(r.FRANQUIA).toUpperCase())) continue;
+        const k = `${r.ANO}-${r.MES}`;
+        if(setAtSO.has(k)) soA += getValorSO(r);
+        if(setCpSO.has(k)) soC += getValorSO(r);
+      }
+      const temSO = (soA > 0 || soC > 0);
+      return temSO ? {soA, soC, soVar: soC ? ((soA-soC)/soC*100) : (soA>0?100:0)} : null;
+    }
+
     // Análise DETALHADA de uma única franquia → array de bullets
     function analisarFranquiaDetalhado(nomeFranquia){
       const baseFr = base.filter(r => String(r[COLS.FRANQUIA]) === nomeFranquia);
@@ -9499,16 +9523,64 @@ async function exportPPTX(){
         const seta = varPct >= 0 ? '▲' : '▼';
 
         allBullets.push({lvl:0, txt:`🌍 GERAL (consolidado): ${seta} ${varPct>=0?'+':''}${varPct.toFixed(1)}% em ${mLabel} (${fmt(valA)})`, header:true});
-        allBullets.push({lvl:1, txt:`UNID ${unidV>=0?'+':''}${unidV.toFixed(1)}% · BRL ${brlV>=0?'+':''}${brlV.toFixed(1)}% vs ${per.labelComp}`});
 
-        // Decomposição consolidada (se BRL/USD)
+        // Performance com driver (volume vs preço/mix)
+        let driverG = 'volume e preço equilibrados';
+        if(Math.abs(unidV) > 0.5 && Math.abs(brlV) > 0.5){
+          const gapDr = brlV - unidV;
+          if(Math.abs(gapDr) < 2) driverG = 'crescimento equilibrado (volume ≈ preço)';
+          else if(gapDr > 2) driverG = `driver preço/mix (BRL +${Math.abs(gapDr).toFixed(1)}pp acima de UNID)`;
+          else driverG = `driver volume (UNID +${Math.abs(gapDr).toFixed(1)}pp acima de BRL)`;
+        }
+        allBullets.push({lvl:1, txt:`Performance: UNID ${unidV>=0?'+':''}${unidV.toFixed(1)}% · BRL ${brlV>=0?'+':''}${brlV.toFixed(1)}% vs ${per.labelComp} · ${driverG}`});
+
+        // Decomposição consolidada (se BRL/USD) - com valores
         if(metricaAtual !== 'UNID' && window.__decompResultado){
           const d = window.__decompResultado;
           const totalAbs = Math.abs(d.totalVolume)+Math.abs(d.totalPreco)+Math.abs(d.totalMix);
           if(totalAbs > 0){
-            allBullets.push({lvl:1, txt:`Decomposição: Volume ${(Math.abs(d.totalVolume)/totalAbs*100).toFixed(0)}% · Preço ${(Math.abs(d.totalPreco)/totalAbs*100).toFixed(0)}% · Mix ${(Math.abs(d.totalMix)/totalAbs*100).toFixed(0)}%`});
+            allBullets.push({lvl:1, txt:`Decomposição: Volume ${(Math.abs(d.totalVolume)/totalAbs*100).toFixed(0)}% (${d.totalVolume>=0?'+':'-'}${fmt(Math.abs(d.totalVolume))}) · Preço ${(Math.abs(d.totalPreco)/totalAbs*100).toFixed(0)}% (${d.totalPreco>=0?'+':'-'}${fmt(Math.abs(d.totalPreco))}) · Mix ${(Math.abs(d.totalMix)/totalAbs*100).toFixed(0)}% (${d.totalMix>=0?'+':'-'}${fmt(Math.abs(d.totalMix))})`});
           }
         }
+
+        // Concentração Top 5 clientes + franquias do grupo
+        const aggCliG = {};
+        const setAtG = new Set(per.periodoAtual.map(p => `${p.ano}-${p.mes}`));
+        for(const r of baseGrupo){
+          const k = `${r[COLS.ANO]}-${r[COLS.MES_NUM]}`;
+          if(!setAtG.has(k)) continue;
+          const c = r[COLS.CLIENTE] || '—';
+          aggCliG[c] = (aggCliG[c] || 0) + getValor(r);
+        }
+        const valoresCliG = Object.values(aggCliG).sort((a,b)=>b-a);
+        const totalCliG = valoresCliG.reduce((s,v)=>s+v,0);
+        const top5G = valoresCliG.slice(0,5).reduce((s,v)=>s+v,0);
+        const concG = totalCliG > 0 ? (top5G/totalCliG*100) : 0;
+        const concIcon = concG >= 80 ? '⚠️ Alta concentração' : (concG >= 60 ? 'Concentração' : 'Distribuição equilibrada');
+        allBullets.push({lvl:1, txt:`${concIcon}: Top 5 clientes = ${concG.toFixed(1)}% do faturamento do grupo`});
+
+        // Sell-out cruzado do grupo (se disponível)
+        const soG = (typeof calcularSOFranquiaMulti === 'function')
+          ? calcularSOFranquiaMulti(franquiasValidas)
+          : null;
+        if(soG){
+          const gapG = varPct - soG.soVar;
+          let txtSOG;
+          if(varPct >= 0 && soG.soVar >= 0){
+            if(gapG > 10) txtSOG = `⚠️ Risco de excesso de estoque: SI ${gapG.toFixed(1)}pp acima do SO`;
+            else if(gapG > 5) txtSOG = `Atenção ao giro: SI ${gapG.toFixed(1)}pp acima do SO`;
+            else if(Math.abs(gapG) <= 5) txtSOG = `Equilíbrio canal × demanda (gap ${gapG>=0?'+':''}${gapG.toFixed(1)}pp)`;
+            else txtSOG = `Possível ruptura: SO ${Math.abs(gapG).toFixed(1)}pp acima do SI`;
+          } else if(varPct < 0 && soG.soVar >= 0){
+            txtSOG = `Demanda positiva, abastecimento em retração (SI ${varPct.toFixed(1)}% vs SO +${soG.soVar.toFixed(1)}%)`;
+          } else if(varPct >= 0 && soG.soVar < 0){
+            txtSOG = `⚠️ Excesso de estoque no canal: SI +${varPct.toFixed(1)}% vs SO ${soG.soVar.toFixed(1)}%`;
+          } else {
+            txtSOG = `Retração compartilhada: SI ${varPct.toFixed(1)}% e SO ${soG.soVar.toFixed(1)}%`;
+          }
+          allBullets.push({lvl:1, txt:`Sell-out: ${soG.soVar>=0?'+':''}${soG.soVar.toFixed(1)}% · ${txtSOG}`});
+        }
+
         allBullets.push({lvl:0, txt:'', spacer:true});
       }
 
@@ -9522,6 +9594,12 @@ async function exportPPTX(){
       });
 
       // Renderizar bullets no slide
+      // Fonte adaptativa: se muitos bullets, reduzir para caber
+      const nLinhas = allBullets.filter(b => !b.spacer).length;
+      const fonteHeader = nLinhas > 14 ? 12 : 13;
+      const fonteBullet = nLinhas > 18 ? 9.5 : (nLinhas > 14 ? 10 : 11);
+      const espacoAfter = nLinhas > 14 ? 2 : 3;
+
       const textRuns = [];
       allBullets.forEach(b => {
         if(b.spacer){
@@ -9532,10 +9610,10 @@ async function exportPPTX(){
           text: b.txt + '\n',
           options: {
             bullet: b.header ? false : {indent: b.lvl > 0 ? 0.3 : 0},
-            fontSize: b.header ? 13 : 11,
+            fontSize: b.header ? fonteHeader : fonteBullet,
             bold: b.header ? true : false,
             color: b.header ? '003595' : '1E3A5F',
-            paraSpaceAfter: b.header ? 4 : 3,
+            paraSpaceAfter: b.header ? (espacoAfter+1) : espacoAfter,
             indentLevel: b.lvl
           }
         });

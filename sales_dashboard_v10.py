@@ -62,8 +62,8 @@ CDN_LIBS = [
     {"name": "Chart.js", "version": "4.4.0", "local_file": "chart.umd.min.js",
      "url": "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js",
      "pattern": r'<script\s+src="https://cdn\.jsdelivr\.net/npm/chart\.js@4\.4\.0/dist/chart\.umd\.min\.js"\s*>\s*</script>'},
-    {"name": "SheetJS (xlsx)", "version": "0.18.5", "local_file": "xlsx.full.min.js",
-     "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+    {"name": "SheetJS (xlsx)", "version": "0.18.5", "local_file": "xlsx.mini.min.js", "externo": True,
+     "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.mini.min.js",
      "pattern": r'<script\s+src="https://cdn\.jsdelivr\.net/npm/xlsx@0\.18\.5/dist/xlsx\.full\.min\.js"\s*>\s*</script>'},
     {"name": "PptxGenJS", "version": "3.12.0", "local_file": "pptxgen.bundle.js",
      "url": "https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js",
@@ -123,18 +123,43 @@ def _norm_franq(s):
 # EMBEDDING
 # =========================================================
 
+def sanitizar_js_para_inline(js_content):
+    """Escapa bytes de controle (0x00-0x1F exceto tab/newline/cr) que quebram
+    o parser JavaScript quando a lib e embutida inline em <script> e aberta via file://.
+    Substitui cada byte de controle pela sua forma de escape JS (\\xNN), que e
+    equivalente dentro de strings JS mas seguro para o parser HTML/JS."""
+    resultado = []
+    for ch in js_content:
+        code = ord(ch)
+        if code < 0x20 and code not in (0x09, 0x0A, 0x0D):
+            resultado.append(f"\\x{code:02x}")
+        else:
+            resultado.append(ch)
+    return "".join(resultado)
+
+
 def carregar_lib(lib):
     """Tenta carregar a biblioteca: primeiro da pasta local, depois do CDN.
     Retorna (conteudo_js, origem) onde origem = 'local' ou 'cdn' ou None."""
     nome = lib["name"]
     local_file = lib.get("local_file")
+    # Libs que precisam de sanitizacao de bytes de controle (SheetJS tem codepages)
+    precisa_sanitizar = lib.get("sanitizar", False)
     # 1) Tenta pasta local
     if local_file:
         local_path = LIBS_LOCAL_DIR / local_file
         if local_path.exists():
             try:
                 content = local_path.read_text(encoding="utf-8")
-                print(f"  [LOCAL] {nome}: {len(content):,} bytes  ({local_path})")
+                if precisa_sanitizar:
+                    antes = len([c for c in content if ord(c) < 0x20 and ord(c) not in (9,10,13)])
+                    content = sanitizar_js_para_inline(content)
+                    if antes > 0:
+                        print(f"  [LOCAL] {nome}: {len(content):,} bytes ({local_path}) · {antes} bytes de controle escapados")
+                    else:
+                        print(f"  [LOCAL] {nome}: {len(content):,} bytes  ({local_path})")
+                else:
+                    print(f"  [LOCAL] {nome}: {len(content):,} bytes  ({local_path})")
                 return content, "local"
             except Exception as e:
                 print(f"  [LOCAL] {nome}: erro lendo {local_path}: {e}")
@@ -147,6 +172,8 @@ def carregar_lib(lib):
         req = urllib.request.Request(lib["url"], headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
             content = resp.read().decode("utf-8")
+            if precisa_sanitizar:
+                content = sanitizar_js_para_inline(content)
             print(f"     [CDN]   OK {nome}: {len(content):,} bytes")
             return content, "cdn"
     except Exception as e:
@@ -170,7 +197,7 @@ def baixar_lib(url, name):
         return None
 
 
-def embutir_libs_externas(html_content):
+def embutir_libs_externas(html_content, output_dir=None):
     print("\n" + "=" * 60)
     print("  EMBEDDING DE BIBLIOTECAS EXTERNAS")
     print(f"  Pasta local: {LIBS_LOCAL_DIR}")
@@ -189,10 +216,46 @@ def embutir_libs_externas(html_content):
     ok = 0
     erros = 0
     erros_lista = []
+    # Mapa: variavel global que cada lib deve criar
+    GLOBAL_VAR = {
+        "Chart.js": "Chart",
+        "SheetJS (xlsx)": "XLSX",
+        "PptxGenJS": "PptxGenJS",
+        "ChartJS DataLabels": "ChartDataLabels",
+    }
     for lib in CDN_LIBS:
         js, origem = carregar_lib(lib)
         if js:
-            tag = '<script>\n/* ' + lib["name"] + ' v' + lib["version"] + ' (' + (origem or '?') + ') */\n' + js + '\n</script>'
+            gvar = GLOBAL_VAR.get(lib["name"])
+            # SheetJS e outras libs com chars problematicos: servir como ARQUIVO EXTERNO local
+            # (inline quebra o parser por strings com </style>, </head>, codepages, etc.)
+            if lib.get("externo") and output_dir:
+                ext_name = lib.get("local_file", "lib.js")
+                ext_path = Path(output_dir) / ext_name
+                try:
+                    ext_path.write_text(js, encoding="utf-8")
+                    print(f"     >> {lib['name']} salvo como arquivo externo: {ext_path.name}")
+                    tag = f'<script src="{ext_name}"></script>'
+                    m = re.search(lib["pattern"], html, flags=re.IGNORECASE)
+                    if m:
+                        html = html.replace(m.group(0), tag)
+                    else:
+                        html = html.replace("</head>", tag + "\n</head>", 1)
+                    ok += 1
+                    continue
+                except Exception as e:
+                    print(f"     ERRO ao salvar arquivo externo: {e}")
+                    # cai pro inline como fallback
+            # Inline padrao (escopo global)
+            tag = ('<script>\n/* ' + lib["name"] + ' v' + lib["version"] + ' (' + (origem or '?') + ') */\n'
+                   + js + '\n</script>')
+            if gvar:
+                tag += ('\n<script>\n'
+                        '/* expor ' + gvar + ' globalmente */\n'
+                        'try{\n'
+                        '  if(typeof ' + gvar + '!=="undefined"){ window.' + gvar + '=' + gvar + '; }\n'
+                        '}catch(_e){ console.error("Erro expondo ' + gvar + ':", _e); }\n'
+                        '</script>')
             m = re.search(lib["pattern"], html, flags=re.IGNORECASE)
             if m:
                 html = html.replace(m.group(0), tag)
@@ -645,7 +708,9 @@ def gerar_html():
 
     # EMBUTIR LIBS
     if EMBUTIR_LIBS:
-        template, lok, lerr = embutir_libs_externas(template)
+        # Diretorio onde o HTML sera salvo (libs externas vao pro mesmo lugar)
+        out_dir = Path(PATH_OUTPUT).parent if Path(PATH_OUTPUT).parent != Path('') else Path('.')
+        template, lok, lerr = embutir_libs_externas(template, output_dir=out_dir)
     else:
         print("\n[INFO] EMBUTIR_LIBS = False")
 
