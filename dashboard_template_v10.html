@@ -864,6 +864,8 @@ window.addEventListener('DOMContentLoaded', function(){
         ℹ️ Mostra os últimos 12 meses (ignora filtro de período). Aplica <b>cliente</b> e <b>produto</b>. Área sombreada = gap entre SI e SO (descompasso entre vendas ao canal e demanda real).
       </div>
       <div class="chart-container" style="height:380px"><canvas id="chartDifference"></canvas></div>
+      <div style="font-size:12px;font-weight:700;color:#0369A1;margin:18px 0 6px">📦 Mesma visão · em Unidades</div>
+      <div class="chart-container" style="height:380px"><canvas id="chartDifferenceUnid"></canvas></div>
     </div>
   </div>
 
@@ -5283,6 +5285,19 @@ function renderTendenciaSystane(){
     aggProd24[prod][idxMap24[k]] += getValor(r);
   }
 
+  // ===== FAMÍLIA SYSTANE: soma de todos os produtos Systane (exceto Lid Wipes) =====
+  const FAMILIA_KEY = '🔷 FAMÍLIA SYSTANE (total)';
+  const famAgg12 = new Array(12).fill(0);
+  const famAgg24 = new Array(24).fill(0);
+  produtosComDado.forEach(p => {
+    aggProd[p].forEach((v,i) => famAgg12[i] += v);
+    aggProd24[p].forEach((v,i) => famAgg24[i] += v);
+  });
+  // Inserir a família no INÍCIO da lista e nos dicionários
+  aggProd[FAMILIA_KEY] = famAgg12;
+  aggProd24[FAMILIA_KEY] = famAgg24;
+  produtosComDado.unshift(FAMILIA_KEY);
+
   // Renderizar grid com sparklines
   const grid = document.getElementById('tendenciaSystaneGrid');
   let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">';
@@ -5299,13 +5314,17 @@ function renderTendenciaSystane(){
     const corVar = yoyPct >= 0 ? '#059669' : '#DC2626';
     const seta = yoyPct >= 0 ? '▲' : '▼';
     const cores = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
-    const cor = cores[idx % cores.length];
+    const ehFamilia = (prod === FAMILIA_KEY);
+    const cor = ehFamilia ? '#003595' : cores[(idx-1) % cores.length];
 
     const canvasId = `sparkSystane_${idx}`;
+    const estiloCard = ehFamilia
+      ? 'background:linear-gradient(135deg,#EBF4FB,#F0F9FF);border:2px solid #003595;border-radius:8px;padding:14px;box-shadow:0 2px 8px rgba(0,53,149,0.12)'
+      : 'background:white;border:1px solid #E5E7EB;border-radius:8px;padding:14px';
     html += `
-      <div style="background:white;border:1px solid #E5E7EB;border-radius:8px;padding:14px">
+      <div style="${estiloCard}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-          <span style="font-size:13px;font-weight:700;color:#1E3A5F">${prod}</span>
+          <span style="font-size:${ehFamilia?'14':'13'}px;font-weight:${ehFamilia?'800':'700'};color:#1E3A5F">${prod}</span>
           <span style="font-size:14px;font-weight:700;color:${corVar}">${seta} ${yoyPct >= 0 ? '+' : ''}${yoyPct.toFixed(1)}%</span>
         </div>
         <div style="font-size:11px;color:var(--ink-muted);margin-bottom:6px">
@@ -5327,7 +5346,7 @@ function renderTendenciaSystane(){
       if(!canvas) return;
       const dados12 = aggProd[prod];
       const cores = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
-      const cor = cores[idx % cores.length];
+      const cor = (prod === FAMILIA_KEY) ? '#003595' : cores[(idx-1) % cores.length];
 
       // Destruir chart existente se houver
       if(charts['spark_systane_' + idx]) charts['spark_systane_' + idx].destroy();
@@ -6908,9 +6927,11 @@ function renderChartDifference(){
     if(mes < 1){ mes = 12; ano--; }
   }
 
-  // Agregar SI e SO por mês
+  // Agregar SI e SO por mês (métrica atual E unidades)
   const siPorMes = new Array(12).fill(0);
   const soPorMes = new Array(12).fill(0);
+  const siPorMesUnid = new Array(12).fill(0);
+  const soPorMesUnid = new Array(12).fill(0);
   const idxMap = {};
   ultimos12.forEach((p, i) => { idxMap[p.key] = i; });
 
@@ -6924,6 +6945,7 @@ function renderChartDifference(){
     const k = `${r[COLS.ANO]}-${String(r[COLS.MES_NUM]).padStart(2,'0')}`;
     if(!(k in idxMap)) continue;
     siPorMes[idxMap[k]] += getValor(r);
+    siPorMesUnid[idxMap[k]] += (+r[COLS.VALOR_UNID] || 0);
   }
   // SO
   for(const r of rawDataSellout){
@@ -6935,6 +6957,7 @@ function renderChartDifference(){
     const k = `${r.ANO}-${String(r.MES).padStart(2,'0')}`;
     if(!(k in idxMap)) continue;
     soPorMes[idxMap[k]] += getValorSO(r);
+    soPorMesUnid[idxMap[k]] += (+r.VALOR_UNID || +r.UNIDADES || +r.UNID || 0);
   }
 
   // Atualizar aviso
@@ -7010,6 +7033,64 @@ function renderChartDifference(){
       }
     }
   });
+
+  // ===== Segundo gráfico: mesma visão em UNIDADES =====
+  destroyChart('differenceUnid');
+  const canvasUnid = document.getElementById('chartDifferenceUnid');
+  if(canvasUnid){
+    charts.differenceUnid = new Chart(canvasUnid, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: '🏭 Sell-in (un)',
+            data: siPorMesUnid,
+            borderColor: '#1E40AF',
+            backgroundColor: 'rgba(30, 64, 175, 0.15)',
+            borderWidth: 3, tension: 0.3, fill: '+1',
+            pointRadius: 4, pointBackgroundColor: '#1E40AF',
+            datalabels: { display: false }
+          },
+          {
+            label: '🏪 Sell-out (un)',
+            data: soPorMesUnid,
+            borderColor: '#059669',
+            backgroundColor: 'rgba(5, 150, 105, 0.05)',
+            borderWidth: 3, tension: 0.3, fill: false,
+            pointRadius: 4, pointBackgroundColor: '#059669',
+            datalabels: { display: false }
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { font: { family: "'Open Sans'", weight: 600 } } },
+          tooltip: {
+            callbacks: {
+              label: c => `${c.dataset.label}: ${fmt(c.parsed.y)} un`,
+              footer: (items) => {
+                if(items.length === 2){
+                  const gap = items[0].parsed.y - items[1].parsed.y;
+                  return `Gap: ${gap>=0?'+':'-'}${fmt(Math.abs(gap))} un ${gap>=0?'(SI>SO)':'(SO>SI)'}`;
+                }
+                return '';
+              }
+            }
+          }
+        },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => fmt(v), font: { family: "'Open Sans'", weight: 300 } } },
+          x: { ticks: { font: { family: "'Open Sans'", weight: 300 } } }
+        }
+      }
+    });
+  }
+  // Guardar dados para o PPT
+  window.__diffSISO = {labels, siPorMes, soPorMes, siPorMesUnid, soPorMesUnid, labelInicio, labelFim};
 }
 
 function renderChartFranquia(data, per){
@@ -9900,49 +9981,60 @@ async function exportPPTX(){
           x:9.35, y:yResumo+0.38, w:4, h:0.3, fontSize:10, color:'065F46'
         });
 
-        // Tabela com top ações (todas categorias misturadas, ordenadas por score)
-        const todasOrdenadas = [...pa.criticos, ...pa.atencao, ...pa.oportunidades]
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 8); // até 8 ações no slide
+        // Separar ações por TIPO: produtos e clientes (2 tabelas)
+        const todasAcoes = [...pa.criticos, ...pa.atencao, ...pa.oportunidades];
+        const acoesProduto = todasAcoes.filter(a => a.tipo === 'produto').sort((a,b)=>b.score-a.score).slice(0,7);
+        const acoesCliente = todasAcoes.filter(a => a.tipo === 'cliente').sort((a,b)=>b.score-a.score).slice(0,7);
 
-        const yTabela = 1.85;
-        const headerRow = [
-          {text:'Cat.', options:{bold:true, color:'FFFFFF', fill:{color:'003595'}, fontSize:9, align:'center'}},
-          {text:'Tipo', options:{bold:true, color:'FFFFFF', fill:{color:'003595'}, fontSize:9}},
-          {text:'Cliente / Produto', options:{bold:true, color:'FFFFFF', fill:{color:'003595'}, fontSize:9}},
-          {text:'Impacto', options:{bold:true, color:'FFFFFF', fill:{color:'003595'}, fontSize:9, align:'right'}},
-          {text:'Δ %', options:{bold:true, color:'FFFFFF', fill:{color:'003595'}, fontSize:9, align:'right'}},
-          {text:'Diagnóstico + Ação Sugerida', options:{bold:true, color:'FFFFFF', fill:{color:'003595'}, fontSize:9}}
-        ];
-        const rows = [headerRow];
+        const catIc = (cat) => cat === 'critico' ? '🔴' : (cat === 'atencao' ? '🟠' : '🟢');
+        const montarLinhas = (acoes, fillHeader) => {
+          const header = [
+            {text:'Cat.', options:{bold:true, color:'FFFFFF', fill:{color:fillHeader}, fontSize:9, align:'center'}},
+            {text:'Nome', options:{bold:true, color:'FFFFFF', fill:{color:fillHeader}, fontSize:9}},
+            {text:'Impacto', options:{bold:true, color:'FFFFFF', fill:{color:fillHeader}, fontSize:9, align:'right'}},
+            {text:'Δ %', options:{bold:true, color:'FFFFFF', fill:{color:fillHeader}, fontSize:9, align:'right'}},
+            {text:'Diagnóstico + Ação', options:{bold:true, color:'FFFFFF', fill:{color:fillHeader}, fontSize:9}}
+          ];
+          const rs = [header];
+          if(acoes.length === 0){
+            rs.push([{text:'Nenhuma ação nesta categoria', options:{colspan:5, align:'center', italic:true, color:'94A3B8', fontSize:9, fill:{color:'F8FAFC'}}}]);
+          }
+          acoes.forEach(a => {
+            const sinal = a.impactoSinal >= 0 ? '+' : '-';
+            const cor = a.impactoSinal >= 0 ? '059669' : 'DC2626';
+            rs.push([
+              {text: catIc(a.categoria), options:{align:'center', fontSize:10}},
+              {text: a.nome, options:{bold:true, fontSize:8.5, color:'1E3A5F'}},
+              {text: `${sinal}${fmt(Math.abs(a.impactoSinal))}`, options:{align:'right', bold:true, color:cor, fontSize:9}},
+              {text: `${a.dPct >= 0 ? '+' : ''}${a.dPct.toFixed(1)}%`, options:{align:'right', color:cor, fontSize:8}},
+              {text: `${a.diagnostico}\n💡 ${a.acao}`, options:{fontSize:7, color:'334155', valign:'middle'}}
+            ]);
+          });
+          return rs;
+        };
 
-        todasOrdenadas.forEach(a => {
-          const catIcon = a.categoria === 'critico' ? '🔴' : (a.categoria === 'atencao' ? '🟠' : '🟢');
-          const tipoLabel = a.tipo === 'cliente' ? 'Cliente' : 'Produto';
-          const sinalImpacto = a.impactoSinal >= 0 ? '+' : '-';
-          const corImpacto = a.impactoSinal >= 0 ? '059669' : 'DC2626';
-          const textoCombinado = `${a.diagnostico}\n💡 ${a.acao}`;
-
-          rows.push([
-            {text: catIcon, options:{align:'center', fontSize:11}},
-            {text: tipoLabel, options:{fontSize:8.5, color:'64748B'}},
-            {text: a.nome, options:{bold:true, fontSize:9, color:'1E3A5F'}},
-            {text: `${sinalImpacto}${fmt(Math.abs(a.impactoSinal))}`, options:{align:'right', bold:true, color: corImpacto, fontSize:9.5}},
-            {text: `${a.dPct >= 0 ? '+' : ''}${a.dPct.toFixed(1)}%`, options:{align:'right', color: corImpacto, fontSize:8.5}},
-            {text: textoCombinado, options:{fontSize:7.5, color:'334155', valign:'middle'}}
-          ]);
+        // TABELA 1: PRODUTOS (lado esquerdo, metade superior)
+        const yT = 1.8;
+        sPlano.addText('📦 Ações por PRODUTO', {x:0.5, y:yT-0.28, w:6.3, h:0.25, fontSize:12, bold:true, color:'003595', fontFace:'Open Sans'});
+        sPlano.addTable(montarLinhas(acoesProduto, '0F2744'), {
+          x:0.5, y:yT, w:6.25,
+          colW:[0.45, 1.7, 1.1, 0.7, 2.3],
+          fontSize:8, border:{type:'solid', pt:0.5, color:'E5E7EB'},
+          rowH:0.6, valign:'middle', autoPage:false
         });
 
-        sPlano.addTable(rows, {
-          x:0.5, y:yTabela, w:12.8,
-          colW:[0.5, 0.85, 2.2, 1.4, 0.85, 7.0],
-          fontSize:8.5, border:{type:'solid', pt:0.5, color:'E5E7EB'},
-          rowH: 0.6
+        // TABELA 2: CLIENTES (lado direito)
+        sPlano.addText('🏪 Ações por CLIENTE', {x:7.0, y:yT-0.28, w:6.3, h:0.25, fontSize:12, bold:true, color:'003595', fontFace:'Open Sans'});
+        sPlano.addTable(montarLinhas(acoesCliente, '1E40AF'), {
+          x:7.0, y:yT, w:6.3,
+          colW:[0.45, 1.7, 1.1, 0.7, 2.35],
+          fontSize:8, border:{type:'solid', pt:0.5, color:'E5E7EB'},
+          rowH:0.6, valign:'middle', autoPage:false
         });
 
         // Footnote
-        sPlano.addText('Score: 60% impacto + 30% urgência + 10% recuperabilidade. Diagnóstico baseado em tendência (slope 6 meses), gap vs YA, cruzamento SI×SO e benchmark de franquia.', {
-          x:0.5, y:7.0, w:12.8, h:0.3, fontSize:8.5, italic:true, color:'94A3B8', fontFace:'Open Sans'
+        sPlano.addText('Score: 60% impacto + 30% urgência + 10% recuperabilidade. 🔴 Crítico · 🟠 Atenção · 🟢 Oportunidade. Tabelas separadas: produtos à esquerda, clientes à direita.', {
+          x:0.5, y:7.05, w:12.8, h:0.3, fontSize:8.5, italic:true, color:'94A3B8', fontFace:'Open Sans'
         });
       }
     }
@@ -10242,67 +10334,104 @@ async function exportPPTX(){
     }
 
     // ============================================================
-    // SLIDE 7 - TOP 15 PRODUTOS (SI + SO combinado lado a lado)
+    // SLIDE 7 - TOP 15 PRODUTOS por CANAL (Rede e Distribuidor, 1 slide cada)
     // ============================================================
-    const s7 = pptx.addSlide();
-    addHeader(s7, `Top 15 Produtos · ${mLabel}`);
-    const atualP = somarPeriodo(base, per.periodoAtual, COLS.PRODUTO);
-    const compP = somarPeriodo(base, per.periodoComp, COLS.PRODUTO);
-    const topProdutos = Object.keys(atualP).map(p => {
-      const a = atualP[p].valor, cp = compP[p]?.valor || 0;
-      return {nome:p, franquia:atualP[p].franquia, atual:a, comp:cp, dPct: cp?((a-cp)/cp*100):(a>0?100:0)};
-    }).sort((a,b)=>b.atual-a.atual).slice(0,15);
+    function classificarCanal(tipoCliente){
+      const t = String(tipoCliente || '').toUpperCase();
+      if(t.includes('DISTRIB')) return 'Distribuidor';
+      if(t.includes('REDE') || t.includes('VAREJO') || t.includes('FARM')) return 'Rede';
+      return 'Outros';
+    }
 
-    s7.addText('🏭 SELL-IN', {x:0.3, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
-    s7.addText('🏪 SELL-OUT (M-2)', {x:6.7, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
+    // Gera um slide de Top 15 produtos (SI×SO) para um canal específico
+    function gerarSlideTopProdutosCanal(canalNome, canalMatch){
+      const s = pptx.addSlide();
+      addHeader(s, `Top 15 Produtos · Canal ${canalNome} · ${mLabel}`);
 
-    const rowsPSI = [[
-      {text:'#', options:{bold:true, color:BRANCO, fill:{color:AZUL}, align:'center'}},
-      {text:'Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL}}},
-      {text:'Atual', options:{bold:true, color:BRANCO, fill:{color:AZUL}, align:'right'}},
-      {text:'Δ %', options:{bold:true, color:BRANCO, fill:{color:AZUL}, align:'right'}}
-    ]];
-    topProdutos.forEach((r,i) => {
-      const bg = i<3 ? 'F5F3FF' : BRANCO;
-      rowsPSI.push([
-        {text:String(i+1), options:{fill:{color:bg}, align:'center', bold:i<3, color:i<3?ROXO:CINZA, fontSize:9}},
-        {text:r.nome, options:{fill:{color:bg}, bold:true, fontSize:9}},
-        {text:fmt(r.atual), options:{fill:{color:bg}, align:'right', fontSize:9}},
-        {text:`${r.dPct>=0?'+':'-'}${Math.abs(r.dPct).toFixed(1)}%`, options:{fill:{color:bg}, align:'right', bold:true, color:r.dPct>=0?VERDE:VERMELHO, fontSize:9}}
-      ]);
-    });
-    s7.addTable(rowsPSI, {x:0.3, y:1.2, w:6.3, colW:[0.4, 3.0, 1.5, 1.4], fontSize:9, border:{type:'solid', pt:0.5, color:'E5E7EB'}});
+      // Base filtrada pelo canal
+      const baseCanal = base.filter(r => classificarCanal(r[COLS.TIPO_CLIENTE]) === canalMatch);
 
-    const rowsPSO = [[
-      {text:'#', options:{bold:true, color:BRANCO, fill:{color:'1E40AF'}, align:'center'}},
-      {text:'Produto', options:{bold:true, color:BRANCO, fill:{color:'1E40AF'}}},
-      {text:'Atual', options:{bold:true, color:BRANCO, fill:{color:'1E40AF'}, align:'right'}},
-      {text:'Δ %', options:{bold:true, color:BRANCO, fill:{color:'1E40AF'}, align:'right'}}
-    ]];
+      const atualP = somarPeriodo(baseCanal, per.periodoAtual, COLS.PRODUTO);
+      const compP = somarPeriodo(baseCanal, per.periodoComp, COLS.PRODUTO);
+      const topProdutos = Object.keys(atualP).map(p => {
+        const a = atualP[p].valor, cp = compP[p]?.valor || 0;
+        return {nome:p, atual:a, comp:cp, dPct: cp?((a-cp)/cp*100):(a>0?100:0)};
+      }).sort((a,b)=>b.atual-a.atual).slice(0,15);
 
-    if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
-      const aggSOP = agregarSellout('PRODUTO', per) || {};
-      const topSOP = Object.keys(aggSOP).map(k => ({nome:k, atual:aggSOP[k].atual, dPct:aggSOP[k].comp?((aggSOP[k].atual-aggSOP[k].comp)/aggSOP[k].comp*100):0}))
-        .filter(r => r.atual > 0).sort((a,b)=>b.atual-a.atual).slice(0,15);
-      topSOP.forEach((r,i) => {
-        const bg = i<3 ? 'EFF6FF' : BRANCO;
-        rowsPSO.push([
-          {text:String(i+1), options:{fill:{color:bg}, align:'center', bold:i<3, color:i<3?'1E40AF':CINZA, fontSize:9}},
+      s.addText('🏭 SELL-IN', {x:0.3, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
+      s.addText('🏪 SELL-OUT (M-2)', {x:6.7, y:0.9, w:6.3, h:0.3, fontSize:13, bold:true, color:'003595', fontFace:'Open Sans'});
+
+      const rowsSI = [[
+        {text:'#', options:{bold:true, color:BRANCO, fill:{color:AZUL}, align:'center'}},
+        {text:'Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL}}},
+        {text:'Atual', options:{bold:true, color:BRANCO, fill:{color:AZUL}, align:'right'}},
+        {text:'Δ %', options:{bold:true, color:BRANCO, fill:{color:AZUL}, align:'right'}}
+      ]];
+      if(topProdutos.length === 0){
+        rowsSI.push([{text:`Sem dados de sell-in para o canal ${canalNome}`, options:{colspan:4, fill:{color:'F8FAFC'}, color:CINZA, italic:true, align:'center', fontSize:10}}]);
+      }
+      topProdutos.forEach((r,i) => {
+        const bg = i<3 ? 'F5F3FF' : BRANCO;
+        rowsSI.push([
+          {text:String(i+1), options:{fill:{color:bg}, align:'center', bold:i<3, color:i<3?ROXO:CINZA, fontSize:9}},
           {text:r.nome, options:{fill:{color:bg}, bold:true, fontSize:9}},
           {text:fmt(r.atual), options:{fill:{color:bg}, align:'right', fontSize:9}},
           {text:`${r.dPct>=0?'+':'-'}${Math.abs(r.dPct).toFixed(1)}%`, options:{fill:{color:bg}, align:'right', bold:true, color:r.dPct>=0?VERDE:VERMELHO, fontSize:9}}
         ]);
       });
-    } else {
-      rowsPSO.push([{text:'Sell-out não carregado', options:{colspan:4, fill:{color:'F8FAFC'}, color:CINZA, italic:true, align:'center', fontSize:10}}]);
-    }
-    s7.addTable(rowsPSO, {x:6.7, y:1.2, w:6.3, colW:[0.4, 3.0, 1.5, 1.4], fontSize:9, border:{type:'solid', pt:0.5, color:'E5E7EB'}});
+      s.addTable(rowsSI, {x:0.3, y:1.2, w:6.3, colW:[0.4, 3.0, 1.5, 1.4], fontSize:9, border:{type:'solid', pt:0.5, color:'E5E7EB'}});
 
-    if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
-      s7.addText(`⚠️ Sell-out: ${MESES_NOME[selloutUltimoPeriodo.mes-1]}/${selloutUltimoPeriodo.ano} (M-2: defasagem de 2 meses vs sell-in)`, {
-        x:0.3, y:6.7, w:12.7, h:0.3, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans', align:'center'
-      });
+      const rowsSO = [[
+        {text:'#', options:{bold:true, color:BRANCO, fill:{color:'1E40AF'}, align:'center'}},
+        {text:'Produto', options:{bold:true, color:BRANCO, fill:{color:'1E40AF'}}},
+        {text:'Atual', options:{bold:true, color:BRANCO, fill:{color:'1E40AF'}, align:'right'}},
+        {text:'Δ %', options:{bold:true, color:BRANCO, fill:{color:'1E40AF'}, align:'right'}}
+      ]];
+      if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
+        // Agregar SO do canal manualmente (mesma janela do agregarSellout)
+        const _soCanal = construirPeriodoSO(per);
+        const setAtSO = _soCanal ? _soCanal.setAtualSO : new Set();
+        const setCpSO = _soCanal ? _soCanal.setCompSO : new Set();
+        const aggSO = {};
+        for(const r of rawDataSellout){
+          if(!selloutCanalOk(r)) continue;
+          if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
+          if(classificarCanal(r.TIPO_CLIENTE) !== canalMatch) continue;
+          const prod = r.PRODUTO; if(!prod) continue;
+          const k = `${r.ANO}-${r.MES}`;
+          if(!aggSO[prod]) aggSO[prod] = {atual:0, comp:0};
+          if(setAtSO.has(k)) aggSO[prod].atual += getValorSO(r);
+          if(setCpSO.has(k)) aggSO[prod].comp += getValorSO(r);
+        }
+        const topSO = Object.keys(aggSO).map(k => ({nome:k, atual:aggSO[k].atual, dPct:aggSO[k].comp?((aggSO[k].atual-aggSO[k].comp)/aggSO[k].comp*100):0}))
+          .filter(r => r.atual > 0).sort((a,b)=>b.atual-a.atual).slice(0,15);
+        if(topSO.length === 0){
+          rowsSO.push([{text:`Sem sell-out para o canal ${canalNome}`, options:{colspan:4, fill:{color:'F8FAFC'}, color:CINZA, italic:true, align:'center', fontSize:10}}]);
+        }
+        topSO.forEach((r,i) => {
+          const bg = i<3 ? 'EFF6FF' : BRANCO;
+          rowsSO.push([
+            {text:String(i+1), options:{fill:{color:bg}, align:'center', bold:i<3, color:i<3?'1E40AF':CINZA, fontSize:9}},
+            {text:r.nome, options:{fill:{color:bg}, bold:true, fontSize:9}},
+            {text:fmt(r.atual), options:{fill:{color:bg}, align:'right', fontSize:9}},
+            {text:`${r.dPct>=0?'+':'-'}${Math.abs(r.dPct).toFixed(1)}%`, options:{fill:{color:bg}, align:'right', bold:true, color:r.dPct>=0?VERDE:VERMELHO, fontSize:9}}
+          ]);
+        });
+      } else {
+        rowsSO.push([{text:'Sell-out não carregado', options:{colspan:4, fill:{color:'F8FAFC'}, color:CINZA, italic:true, align:'center', fontSize:10}}]);
+      }
+      s.addTable(rowsSO, {x:6.7, y:1.2, w:6.3, colW:[0.4, 3.0, 1.5, 1.4], fontSize:9, border:{type:'solid', pt:0.5, color:'E5E7EB'}});
+
+      if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
+        s.addText(`⚠️ Sell-out: ${MESES_NOME[selloutUltimoPeriodo.mes-1]}/${selloutUltimoPeriodo.ano} (M-2) · Canal: ${canalNome} (TIPO_CLIENTE)`, {
+          x:0.3, y:6.7, w:12.7, h:0.3, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans', align:'center'
+        });
+      }
     }
+
+    // Gerar 1 slide por canal
+    gerarSlideTopProdutosCanal('Rede (Farmácias)', 'Rede');
+    gerarSlideTopProdutosCanal('Distribuidor', 'Distribuidor');
 
     // ============================================================
     // ============================================================
@@ -10884,12 +11013,21 @@ async function exportPPTX(){
 
         const prodsComDado = prodsSystane.filter(p => aggProdSy[p].some(v => v > 0));
 
+        // FAMÍLIA SYSTANE: soma de todos (exceto Lid Wipes, já fora) - primeiro card
+        const FAM_KEY_PPT = '🔷 FAMÍLIA SYSTANE';
+        if(prodsComDado.length > 0){
+          const famArr = new Array(12).fill(0);
+          prodsComDado.forEach(p => aggProdSy[p].forEach((v,i) => famArr[i] += v));
+          aggProdSy[FAM_KEY_PPT] = famArr;
+          prodsComDado.unshift(FAM_KEY_PPT);
+        }
+
         if(prodsComDado.length === 0){
           sSyst.addText('Sem dados de Systane para os filtros aplicados.', {
             x:0.5, y:3.5, w:12.5, h:0.5, fontSize:14, italic:true, color:CINZA, align:'center', fontFace:'Open Sans'
           });
         } else {
-          // Gerar grid - até 6 produtos (3 colunas × 2 linhas pra acomodar 5-6 Systane)
+          // Grid - até 6 cards (família + top 5 produtos)
           const nProds = Math.min(prodsComDado.length, 6);
           const cols = nProds <= 2 ? nProds : (nProds <= 4 ? 2 : 3);
           const rows = Math.ceil(nProds / cols);
@@ -10902,16 +11040,17 @@ async function exportPPTX(){
             const row = Math.floor(idx / cols);
             const xM = 0.3 + col * (wMini + 0.2);
             const yM = 1.3 + row * (hMini + 0.1);
-            const cor = corPaleta[idx % corPaleta.length];
+            const ehFam = (prod === FAM_KEY_PPT);
+            const cor = ehFam ? '003595' : corPaleta[(idx-1) % corPaleta.length];
 
-            // Caixa
-            sSyst.addShape(pptx.ShapeType.rect, {x:xM, y:yM, w:wMini, h:hMini-0.1, fill:{color:'FFFFFF'}, line:{color:'E5E7EB', width:1}});
+            // Caixa (família destacada)
+            sSyst.addShape(pptx.ShapeType.rect, {x:xM, y:yM, w:wMini, h:hMini-0.1, fill:{color: ehFam?'EBF4FB':'FFFFFF'}, line:{color: ehFam?'003595':'E5E7EB', width: ehFam?2:1}});
 
             const dadosP = aggProdSy[prod];
             const total12 = dadosP.reduce((s,v) => s+v, 0);
 
             // Header - nome do produto pode ser longo, fonte menor
-            sSyst.addText(prod, {x:xM+0.08, y:yM+0.06, w:wMini-0.16, h:0.28, fontSize:10, bold:true, color:'1E3A5F', fontFace:'Open Sans'});
+            sSyst.addText(prod, {x:xM+0.08, y:yM+0.06, w:wMini-0.16, h:0.28, fontSize: ehFam?11:10, bold:true, color:'1E3A5F', fontFace:'Open Sans'});
             sSyst.addText(`Total 12m: ${fmt(total12)}`, {x:xM+0.08, y:yM+0.32, w:wMini-0.16, h:0.18, fontSize:8.5, color:CINZA, fontFace:'Open Sans'});
 
             // Gráfico de linha (usando chart nativo do PPTX)
@@ -10969,6 +11108,8 @@ async function exportPPTX(){
 
       const siD = new Array(12).fill(0);
       const soD = new Array(12).fill(0);
+      const siDu = new Array(12).fill(0);
+      const soDu = new Array(12).fill(0);
 
       for(const r of rawData){
         if(fontesSetD && !fontesSetD.has(String(r[COLS.FONTE]))) continue;
@@ -10979,6 +11120,7 @@ async function exportPPTX(){
         const k = `${r[COLS.ANO]}-${String(r[COLS.MES_NUM]).padStart(2,'0')}`;
         if(!(k in idxMapD)) continue;
         siD[idxMapD[k]] += getValor(r);
+        siDu[idxMapD[k]] += (+r[COLS.VALOR_UNID] || 0);
       }
       for(const r of rawDataSellout){
         if(!selloutCanalOk(r)) continue;
@@ -10989,6 +11131,7 @@ async function exportPPTX(){
         const k = `${r.ANO}-${String(r.MES).padStart(2,'0')}`;
         if(!(k in idxMapD)) continue;
         soD[idxMapD[k]] += getValorSO(r);
+        soDu[idxMapD[k]] += (+r.VALOR_UNID || +r.UNIDADES || +r.UNID || 0);
       }
 
       const labelInicio = `${MESES_NOME[ultimos12D[0].mes-1]}/${ultimos12D[0].ano}`;
@@ -11023,6 +11166,34 @@ async function exportPPTX(){
         {text:'💡 Gap total 12m: ', options:{fontSize:11, bold:true, color:'92400E'}},
         {text:`${sinalGap}${fmt(Math.abs(gapTotal))}`, options:{fontSize:13, bold:true, color: gapTotal >= 0 ? VERMELHO : VERDE}},
         {text: ` · ${tipoGap}`, options:{fontSize:10, italic:true, color:'78350F'}}
+      ], {x:0.5, y:6.99, w:12.5, h:0.32, valign:'middle'});
+
+      // ===== SLIDE 2: mesma visão em UNIDADES =====
+      const sDiffU = pptx.addSlide();
+      sDiffU.background = {color: 'FFFFFF'};
+      sDiffU.addText('🔀 SELL-IN vs SELL-OUT · Diferença · Últimos 12 meses · UNIDADES', {
+        x:0.3, y:0.3, w:12.7, h:0.5, fontSize:18, bold:true, color:AZUL, fontFace:'Open Sans'
+      });
+      sDiffU.addText(`${labelInicio} a ${labelFim} · Unidades · Filtros: cliente + produto`, {
+        x:0.3, y:0.8, w:12.7, h:0.3, fontSize:11, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
+      sDiffU.addChart(pptx.ChartType.line, [
+        { name: '🏭 Sell-in (un)', labels: labels, values: siDu },
+        { name: '🏪 Sell-out (un)', labels: labels, values: soDu }
+      ], {
+        x:0.5, y:1.3, w:12.3, h:5.5,
+        chartColors: ['1E40AF', '059669'],
+        showLegend: true, legendPos: 't', showTitle: false,
+        catAxisLabelFontSize: 9, valAxisLabelFontSize: 9,
+        lineSize: 3, lineSmooth: true
+      });
+      const gapUn = siDu.reduce((s,v)=>s+v,0) - soDu.reduce((s,v)=>s+v,0);
+      const tipoGapUn = gapUn >= 0 ? 'SI > SO (estoque crescendo)' : 'SO > SI (demanda forte)';
+      sDiffU.addShape(pptx.ShapeType.rect, {x:0.3, y:6.95, w:12.7, h:0.4, fill:{color:'FEF3C7'}, line:{color:'D97706', width:1}});
+      sDiffU.addText([
+        {text:'💡 Gap total 12m (un): ', options:{fontSize:11, bold:true, color:'92400E'}},
+        {text:`${gapUn>=0?'+':'-'}${fmt(Math.abs(gapUn))} un`, options:{fontSize:13, bold:true, color: gapUn >= 0 ? VERMELHO : VERDE}},
+        {text: ` · ${tipoGapUn}`, options:{fontSize:10, italic:true, color:'78350F'}}
       ], {x:0.5, y:6.99, w:12.5, h:0.32, valign:'middle'});
     }
 
