@@ -2226,32 +2226,58 @@ function getPeriodos(){
 
 // ============================================================
 // Constrói a janela de SELL-OUT correta para o período selecionado.
-// REGRA: o sell-out usa a MESMA QUANTIDADE de meses do período de sell-in,
-// porém TERMINANDO no último mês de sell-out disponível.
-// Ex: MAT (12 meses), SI = jun/25→mai/26, último SO = abr/26
-//     → SO MAT = mai/25→abr/26 (12 meses completos, deslocados)
-// Isso evita o bug de "11 meses" que acontecia ao apenas cortar os meses de SI.
-// Retorna {perAtualSO, perCompSO, setAtualSO, setCompSO, labelAtualSO, labelCompSO} ou null.
+// Há DOIS comportamentos conforme o tipo de período:
+//
+// 1) YTD (ancorado em janeiro): se o período de sell-in começa em JANEIRO,
+//    o sell-out também começa em janeiro do MESMO ano, cortando no último mês
+//    de SO disponível.
+//    Ex: SI YTD = Jan→Mai/26, último SO = Abr/26
+//        → SO atual = Jan/26→Abr/26 | SO comp = Jan/25→Abr/25
+//
+// 2) MAT / janela móvel (qualquer período que NÃO começa em janeiro):
+//    usa a mesma QUANTIDADE de meses do SI, terminando no último mês de SO.
+//    Ex: SI MAT = jun/25→mai/26, último SO = abr/26
+//        → SO atual = mai/25→abr/26 (12 meses deslocados)
+//
+// Retorna {perAtualSO, perCompSO, setAtualSO, setCompSO, labelAtualSO, labelCompSO, modo} ou null.
 // ============================================================
 function construirPeriodoSO(per){
   const ultMesSO = selloutUltimoPeriodo;
   if(!ultMesSO) return null;
+  if(!per.periodoAtual || per.periodoAtual.length === 0) return null;
 
-  // Quantos meses tem o período atual (MAT=12, QTR=3, YTD=n, mês único=1...)
-  const nMeses = per.periodoAtual.length;
+  const fimIdxSO = ultMesSO.ano * 12 + (ultMesSO.mes - 1);
 
-  // Índice absoluto do último mês de SO (ano*12 + mes)
-  const fimIdx = ultMesSO.ano * 12 + (ultMesSO.mes - 1);
+  // Detectar se é YTD: período começa em janeiro (mês 1) e é sequencial no mesmo ano
+  const prim = per.periodoAtual[0];
+  const ult = per.periodoAtual[per.periodoAtual.length - 1];
+  const ehYTD = prim.mes === 1 && prim.ano === ult.ano;
 
-  // Construir nMeses terminando em fimIdx (janela completa, deslocada para o SO)
-  const perAtualSO = [];
-  for(let i = nMeses - 1; i >= 0; i--){
-    const idx = fimIdx - i;
-    const ano = Math.floor(idx / 12);
-    const mes = (idx % 12) + 1;
-    perAtualSO.push({ano, mes});
+  let perAtualSO;
+  if(ehYTD){
+    // ANCORADO EM JANEIRO: Jan do ano corrente até o menor entre (último mês do SI) e (último SO do mesmo ano)
+    const anoYTD = prim.ano;
+    // Se o SO do ano corrente vai só até abr, corta em abr; senão usa o último mês do SI
+    let mesFimYTD = ult.mes;
+    if(ultMesSO.ano === anoYTD){
+      mesFimYTD = Math.min(ult.mes, ultMesSO.mes);
+    } else if(ultMesSO.ano < anoYTD){
+      // Não há SO no ano corrente — sem dados; mantém pelo menos janeiro (ficará zerado)
+      mesFimYTD = 1;
+    }
+    perAtualSO = [];
+    for(let m = 1; m <= mesFimYTD; m++) perAtualSO.push({ano: anoYTD, mes: m});
+  } else {
+    // JANELA MÓVEL (MAT/range/QTR): mesma qtd de meses, terminando no último SO
+    const nMeses = per.periodoAtual.length;
+    perAtualSO = [];
+    for(let i = nMeses - 1; i >= 0; i--){
+      const idx = fimIdxSO - i;
+      perAtualSO.push({ano: Math.floor(idx / 12), mes: (idx % 12) + 1});
+    }
   }
-  // Período comparativo: mesma janela um ano antes
+
+  // Comparativo: mesmos meses, um ano antes
   const perCompSO = perAtualSO.map(p => ({ano: p.ano - 1, mes: p.mes}));
 
   const setAtualSO = new Set(perAtualSO.map(p => `${p.ano}-${p.mes}`));
@@ -2264,7 +2290,8 @@ function construirPeriodoSO(per){
   return {
     perAtualSO, perCompSO, setAtualSO, setCompSO,
     labelAtualSO: fmtLabel(perAtualSO),
-    labelCompSO: fmtLabel(perCompSO)
+    labelCompSO: fmtLabel(perCompSO),
+    modo: ehYTD ? 'ytd' : 'movel'
   };
 }
 
@@ -11074,41 +11101,122 @@ async function exportPPTX(){
           sTgt.addText(`${c.gap.icon} ${c.gap.label}`, {x:xC+0.2, y:2.6, w:3.7, h:0.5, fontSize:18, bold:true, color:c.gap.cor, fontFace:'Open Sans'});
         });
 
-        // Tabela: atingimento por produto (YTD)
-        sTgt.addText('Detalhe por produto · YTD', {x:0.4, y:3.55, w:12.5, h:0.3, fontSize:12, bold:true, color:AZUL, fontFace:'Open Sans'});
+        // Tabela: atingimento por FRANQUIA e PRODUTO (mês + YTD), igual ao HTML
+        sTgt.addText('Detalhe por Franquia e Produto', {x:0.4, y:3.55, w:12.5, h:0.3, fontSize:12, bold:true, color:AZUL, fontFace:'Open Sans'});
 
-        // Calcular real e target por produto
-        const produtosT = [...new Set(targetsF.map(t => t.PRODUTO))];
+        // Mapear franquia de cada produto (targets + base)
+        const franquiaDoProdutoT = {};
+        targetsF.forEach(t => { if(t.PRODUTO && t.FRANQUIA) franquiaDoProdutoT[t.PRODUTO] = t.FRANQUIA; });
+        for(const r of base){
+          const p = r[COLS.PRODUTO];
+          if(p && !franquiaDoProdutoT[p] && r[COLS.FRANQUIA]) franquiaDoProdutoT[p] = r[COLS.FRANQUIA];
+        }
+
+        // Real e Target por produto - MÊS e YTD
+        const produtosT = [...new Set([...targetsF.map(t => t.PRODUTO), ...base.map(r => r[COLS.PRODUTO])])].filter(p => p);
         const linhasProd = produtosT.map(prod => {
-          const realP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] <= mesAtualT)
+          const realMesP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] === mesAtualT)
             .reduce((s, r) => s + getValor(r), 0);
-          const tgtP = targetsF.filter(t => t.PRODUTO === prod && +t.ANO === anoAtualT && +t.MES_NUM <= mesAtualT)
+          const realYTDP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] <= mesAtualT)
+            .reduce((s, r) => s + getValor(r), 0);
+          const tgtMesP = targetsF.filter(t => t.PRODUTO === prod && +t.ANO === anoAtualT && +t.MES_NUM === mesAtualT)
             .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
-          return {prod, real:realP, tgt:tgtP, gap:calcGap(realP, tgtP)};
-        }).filter(l => l.real > 0 || l.tgt > 0)
-          .sort((a, b) => (a.gap.pct === null ? 999 : a.gap.pct) - (b.gap.pct === null ? 999 : b.gap.pct))
-          .slice(0, 8);
+          const tgtYTDP = targetsF.filter(t => t.PRODUTO === prod && +t.ANO === anoAtualT && +t.MES_NUM <= mesAtualT)
+            .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
+          if(tgtYTDP === 0 && realYTDP === 0) return null;
+          return {
+            produto: prod, franquia: franquiaDoProdutoT[prod] || '—',
+            realMes: realMesP, tgtMes: tgtMesP, realYTD: realYTDP, tgtYTD: tgtYTDP
+          };
+        }).filter(x => x);
 
         if(linhasProd.length > 0){
-          const headerRow = [
-            {text:'Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10}},
-            {text:'Real YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10, align:'center'}},
-            {text:'Target YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10, align:'center'}},
-            {text:'Gap abs', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10, align:'center'}},
-            {text:'Atingimento', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:10, align:'center'}}
-          ];
-          const dataRows = linhasProd.map(l => [
-            {text:l.prod, options:{fontSize:10, color:PRETO}},
-            {text:fmt(l.real), options:{fontSize:10, color:PRETO, align:'center'}},
-            {text:l.tgt > 0 ? fmt(l.tgt) : '—', options:{fontSize:10, color:CINZA, align:'center'}},
-            {text:l.gap.pct !== null ? `${l.gap.abs>=0?'+':''}${fmt(l.gap.abs)}` : '—', options:{fontSize:10, color:l.gap.cor, align:'center', bold:true}},
-            {text:`${l.gap.icon} ${l.gap.label}`, options:{fontSize:10, color:l.gap.cor, align:'center', bold:true}}
+          // Agrupar por franquia
+          const porFr = {};
+          linhasProd.forEach(l => { (porFr[l.franquia] ||= []).push(l); });
+          const ordemFrT = ['GLAUCOMA','PÓS-OP. & PATANOL S','POS-OP. & PATANOL S','DE&OH','CLC','CL'];
+          const frsOrd = Object.keys(porFr).sort((a,b) => {
+            const ia = ordemFrT.findIndex(o => a.toUpperCase().trim()===o);
+            const ib = ordemFrT.findIndex(o => b.toUpperCase().trim()===o);
+            if(ia===-1&&ib===-1) return a.localeCompare(b);
+            if(ia===-1) return 1; if(ib===-1) return -1; return ia-ib;
+          });
+
+          // Helper de % com cor/ícone
+          const pctCell = (real, tgt) => {
+            if(!tgt) return {text:'—', options:{fontSize:8, color:CINZA, align:'center'}};
+            const pct = real/tgt*100;
+            const cor = pct >= 100 ? VERDE : (pct >= 90 ? LARANJA : VERMELHO);
+            const ic = pct >= 100 ? '✅' : (pct >= 90 ? '⚠️' : '🚨');
+            return {text:`${ic} ${pct.toFixed(0)}%`, options:{fontSize:8, color:cor, align:'center', bold:true}};
+          };
+
+          // Cabeçalho
+          const mesNomeT = MESES_NOME[mesAtualT-1];
+          const rows = [[
+            {text:'Franquia / Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9}},
+            {text:`Real ${mesNomeT}`, options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
+            {text:`Tgt ${mesNomeT}`, options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
+            {text:'% Mês', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
+            {text:'Real YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
+            {text:'Tgt YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
+            {text:'% YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}}
+          ]];
+
+          let totRMes=0, totTMes=0, totRYTD=0, totTYTD=0;
+          frsOrd.forEach(fr => {
+            const linhas = porFr[fr].sort((a,b) => {
+              const pa = a.tgtYTD ? a.realYTD/a.tgtYTD : 9; const pb = b.tgtYTD ? b.realYTD/b.tgtYTD : 9;
+              return pa - pb;
+            });
+            // Cabeçalho da franquia
+            rows.push([{text:`🏷️ ${fr}`, options:{bold:true, color:AZUL, fill:{color:'EEF2FF'}, fontSize:9, colspan:7}}]);
+            let sRM=0,sTM=0,sRY=0,sTY=0;
+            linhas.forEach(r => {
+              sRM+=r.realMes; sTM+=r.tgtMes; sRY+=r.realYTD; sTY+=r.tgtYTD;
+              rows.push([
+                {text:`  ${r.produto}`, options:{fontSize:8, color:PRETO}},
+                {text:r.realMes?fmt(r.realMes):'—', options:{fontSize:8, color:PRETO, align:'center'}},
+                {text:r.tgtMes?fmt(r.tgtMes):'—', options:{fontSize:8, color:CINZA, align:'center'}},
+                pctCell(r.realMes, r.tgtMes),
+                {text:r.realYTD?fmt(r.realYTD):'—', options:{fontSize:8, color:PRETO, align:'center'}},
+                {text:r.tgtYTD?fmt(r.tgtYTD):'—', options:{fontSize:8, color:CINZA, align:'center'}},
+                pctCell(r.realYTD, r.tgtYTD)
+              ]);
+            });
+            // Subtotal da franquia
+            rows.push([
+              {text:`  ↳ Subtotal ${fr}`, options:{fontSize:8, color:AZUL_ESCURO, bold:true, fill:{color:'F1F5F9'}}},
+              {text:sRM?fmt(sRM):'—', options:{fontSize:8, bold:true, fill:{color:'F1F5F9'}, align:'center'}},
+              {text:sTM?fmt(sTM):'—', options:{fontSize:8, bold:true, color:CINZA, fill:{color:'F1F5F9'}, align:'center'}},
+              {...pctCell(sRM,sTM), options:{...pctCell(sRM,sTM).options, fill:{color:'F1F5F9'}, bold:true}},
+              {text:sRY?fmt(sRY):'—', options:{fontSize:8, bold:true, fill:{color:'F1F5F9'}, align:'center'}},
+              {text:sTY?fmt(sTY):'—', options:{fontSize:8, bold:true, color:CINZA, fill:{color:'F1F5F9'}, align:'center'}},
+              {...pctCell(sRY,sTY), options:{...pctCell(sRY,sTY).options, fill:{color:'F1F5F9'}, bold:true}}
+            ]);
+            totRMes+=sRM; totTMes+=sTM; totRYTD+=sRY; totTYTD+=sTY;
+          });
+
+          // Total geral
+          const totPctMes = totTMes ? (totRMes/totTMes*100).toFixed(0)+'%' : '—';
+          const totPctYTD = totTYTD ? (totRYTD/totTYTD*100).toFixed(0)+'%' : '—';
+          rows.push([
+            {text:'TOTAL GERAL', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9}},
+            {text:totRMes?fmt(totRMes):'—', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}},
+            {text:totTMes?fmt(totTMes):'—', options:{bold:true, color:'CBD5E1', fill:{color:AZUL}, fontSize:9, align:'center'}},
+            {text:totPctMes, options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}},
+            {text:totRYTD?fmt(totRYTD):'—', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}},
+            {text:totTYTD?fmt(totTYTD):'—', options:{bold:true, color:'CBD5E1', fill:{color:AZUL}, fontSize:9, align:'center'}},
+            {text:totPctYTD, options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}}
           ]);
-          sTgt.addTable([headerRow, ...dataRows], {
+
+          // Altura de linha adaptativa conforme nº de linhas (cabe no slide)
+          const rowHT = rows.length > 22 ? 0.20 : (rows.length > 16 ? 0.24 : 0.28);
+          sTgt.addTable(rows, {
             x:0.4, y:3.85, w:12.5,
-            colW:[3.5, 2.2, 2.2, 2.3, 2.3],
+            colW:[3.8, 1.6, 1.6, 1.1, 1.6, 1.6, 1.1],
             border:{type:'solid', pt:0.5, color:'E5E7EB'},
-            rowH:0.4
+            rowH:rowHT, valign:'middle', autoPage:false
           });
         } else {
           sTgt.addText('Sem produtos com target cadastrado nos filtros atuais.', {
@@ -11117,8 +11225,8 @@ async function exportPPTX(){
         }
 
         // Footer
-        sTgt.addText(`Métrica: ${mLabel} · Filtros aplicados: ${franquiasSelecionadas.length ? franquiasSelecionadas.join(', ') : 'todas franquias'}`, {
-          x:0.4, y:7.0, w:12.5, h:0.25, fontSize:9, italic:true, color:CINZA, fontFace:'Open Sans'
+        sTgt.addText(`Métrica: ${mLabel} · Mês = ${MESES_NOME[mesAtualT-1]}/${anoAtualT} · YTD = Jan→${MESES_NOME[mesAtualT-1]} · Filtros: ${franquiasSelecionadas.length ? franquiasSelecionadas.join(', ') : 'todas franquias'}`, {
+          x:0.4, y:7.15, w:12.5, h:0.25, fontSize:8, italic:true, color:CINZA, fontFace:'Open Sans'
         });
       }
     }

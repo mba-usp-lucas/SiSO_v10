@@ -1,60 +1,59 @@
-# v10 - CORREÇÃO: janela MAT do Sell-out (trazia 11 meses)
+# v10 - Tabela Target Financeiro no PowerPoint (igual ao HTML)
 
-## 🐛 Problema reportado
-Ao selecionar MAT, o sell-out trazia 11 meses (jun/25 a abr/26) em vez de 12.
-O sell-in estava certo (jun/25 a mai/26, pois tem dado suficiente).
+## ✨ O que mudou no slide de Targets Financeiros do PPT
 
-## 🔍 Causa raiz
-O sell-out apenas CORTAVA os meses do sell-in que não tinham dado em SO:
-- SI MAT: jun/25 → mai/26 (12 meses)
-- SO disponível até abr/26
-- Lógica antiga: filtrava SI removendo mai/26 (não tem SO) → sobravam 11 meses
+### Antes
+Tabela simples "Detalhe por produto · YTD": top-8 produtos, 5 colunas
+(Produto | Real YTD | Target YTD | Gap abs | Atingimento), sem franquia.
 
-## ✅ Correção
-Nova função `construirPeriodoSO(per)` que monta a janela SO CORRETA:
-- Usa a MESMA QUANTIDADE de meses do período de sell-in (MAT=12, QTR=3, etc.)
-- Mas TERMINANDO no último mês de SO disponível (desloca a janela inteira)
+### Agora (espelha o HTML)
+Tabela "Detalhe por Franquia e Produto" agrupada por franquia, com MÊS e YTD:
 
-Resultado para o caso MAT:
-- SI: jun/25 → mai/26 (12 meses)
-- SO: **mai/25 → abr/26 (12 meses completos)** ✅
-- Comp SO: mai/24 → abr/25 (12 meses)
+| Coluna | Conteúdo |
+|---|---|
+| Franquia / Produto | Cabeçalho 🏷️ por franquia + produtos |
+| Real {Mês} | Realizado do mês atual |
+| Tgt {Mês} | Target do mês atual |
+| % Mês | Atingimento mês (✅≥100% ⚠️90-99% 🚨<90%) |
+| Real YTD | Realizado acumulado |
+| Tgt YTD | Target acumulado |
+| % YTD | Atingimento YTD |
 
-## 🔧 Aplicação
-A regra foi aplicada em TODOS os ~18 pontos do código que calculavam janela SO:
-- Card Comparativo SI×SO
-- KPIs principais
-- Resumo por rede
-- Top Clientes / Top Produtos SO
-- Crescimento / Queda SO
-- Insights (macro + por franquia)
-- Decomposição
-- Slides do PowerPoint (SI×SO, Targets)
-- calcularSOFranquia / calcularSOFranquiaMulti
+### Estrutura visual (idêntica ao HTML)
+```
+┌─ Franquia/Produto ─ Real Mai ─ Tgt Mai ─ %Mês ─ Real YTD ─ Tgt YTD ─ %YTD ┐
+│ 🏷️ GLAUCOMA (faixa azul clara, colspan)                                  │
+│   TRAVATAN Z        8.000    10.000   🚨80%   90.000   100.000   ⚠️90%    │
+│   DUOTRAV           4.500     5.000   ⚠️90%   48.000    50.000   ⚠️96%    │
+│   ↳ Subtotal Glaucoma (faixa cinza)  12.500  15.000  ...                  │
+│ 🏷️ CL                                                                     │
+│   PRECISION 1       3.500     3.000   ✅117%  32.000    30.000   ✅107%   │
+│   ↳ Subtotal CL ...                                                       │
+│ TOTAL GERAL (faixa azul)  16.000  18.000  89%  170.000  180.000  94%      │
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
-Antes cada lugar tinha a lógica duplicada (function temNoSO + filter + fallback).
-Agora todos chamam `construirPeriodoSO(per)` — fonte única de verdade.
+### Recursos espelhados do HTML
+- Cabeçalho de franquia 🏷️ (colspan nas 7 colunas, fundo EEF2FF)
+- Subtotal por franquia (mês + YTD, fundo F1F5F9, com ↳)
+- Total geral em faixa azul
+- Franquias na ordem Glaucoma → Pós-Op → DE&OH → CLC → CL
+- Produtos ordenados pelos piores gaps YTD primeiro
+- Cores de atingimento ✅ ≥100% · ⚠️ 90-99% · 🚨 <90%
+- Altura de linha adaptativa (0.20/0.24/0.28) conforme nº de linhas
 
 ## ✅ Validações
-- Sintaxe JS OK (3 scripts inline)
+- Sintaxe JS OK (3 scripts)
 - Python end-to-end OK
-- Runtime no browser simulado (jsdom): XLSX ✅, sem ReferenceError ✅
-- 0 ocorrências da lógica antiga restantes
-- Teste do cenário MAT (jun/25→mai/26, SO até abr/26):
-  - 12 meses (não 11) ✅
-  - Começa em mai/25 ✅
-  - Termina em abr/26 ✅
-  - Comp começa em mai/24 ✅
-- Teste QTR (3 meses): fev/26 a abr/26 ✅
+- **PPT real gerado via jsdom (148KB base64)** ✅
+- **addTable com colspan + fill nos subtotais + total: VÁLIDO no PptxGenJS** ✅
+- Lógica de agrupamento/subtotais idêntica à do HTML (já validada antes:
+  Glaucoma YTD=138k, total=170k)
 
 ## 🧪 Como testar
 1. Substitua dashboard_template_v10.html (leve o xlsx.mini.min.js junto)
 2. Rode python sales_dashboard_v10.py
-3. Selecione MAT no filtro de período
-4. Veja o aviso do sell-out: "Sell-out (Mai/2025 a Abr/2026 ...)" = 12 meses
-5. O comparativo SI×SO agora usa 12 meses de cada lado, deslocados pela defasagem M-2
-
-## 💡 Nota sobre o aviso M-2
-Quando o último mês de SO é diferente do último mês do SI (defasagem normal),
-o aviso passa a dizer "Janela do Sell-out deslocada para os meses disponíveis"
-em vez de "filtro cortado" — refletindo que agora é janela completa, não corte.
+3. Carregue Targets Financeiros
+4. Exporte PowerPoint
+5. No slide "🎯 Targets Financeiros · Atingimento", a tabela agora aparece
+   agrupada por franquia 🏷️ com subtotais mês + YTD e total geral — igual ao HTML
