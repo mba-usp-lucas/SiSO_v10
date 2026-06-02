@@ -9231,9 +9231,12 @@ async function exportPPTX(){
       const sComp = pptx.addSlide();
       addHeader(sComp, '🔄 Análise Comparativa Sell-in × Sell-out');
 
-      // Aviso M-2
+      // Aviso M-2 (usa a janela SO correta: YTD ancorado ou janela móvel)
+      const _soPcomp = construirPeriodoSO(per);
+      const _lblSOAtual = _soPcomp ? _soPcomp.labelAtualSO : `${MESES_NOME[selloutUltimoPeriodo.mes-1]}/${selloutUltimoPeriodo.ano}`;
+      const _lblSOComp = _soPcomp ? _soPcomp.labelCompSO : `${MESES_NOME[selloutUltimoPeriodo.mes-1]}/${selloutUltimoPeriodo.ano-1}`;
       sComp.addText(
-        `⚠️ Sell-out tem 2 meses de defasagem. Comparativo: Sell-in (${per.labelAtual} vs ${per.labelComp}) × Sell-out (${MESES_NOME[selloutUltimoPeriodo.mes-1]}/${selloutUltimoPeriodo.ano} vs ${MESES_NOME[selloutUltimoPeriodo.mes-1]}/${selloutUltimoPeriodo.ano-1}).`,
+        `⚠️ Sell-out tem 2 meses de defasagem. Comparativo: Sell-in (${per.labelAtual} vs ${per.labelComp}) × Sell-out (${_lblSOAtual} vs ${_lblSOComp}).`,
         {x:0.3, y:0.9, w:12.7, h:0.4, fontSize:10, italic:true, color:'78350F', fill:{color:'FEF3C7'}, align:'left', margin:8, valign:'middle'}
       );
 
