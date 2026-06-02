@@ -3972,7 +3972,7 @@ function renderPlanoRecuperacao(per){
   if(diag.soInfo){
     const so = diag.soInfo;
     const diagTxt = Math.abs(so.gap) > 5
-      ? (so.gap > 5 ? '⚠️ SI acima do SO · risco de estoque empurrado' : '⚠️ SO acima do SI · demanda forte (oportunidade)')
+      ? (so.gap > 5 ? '⚠️ SI acima do SO · risco de estoque crescendo' : '⚠️ SO acima do SI · demanda forte (oportunidade)')
       : '✅ SI e SO alinhados · canal saudável';
     html += `
       <div style="font-size:11px;line-height:1.6">
@@ -4891,13 +4891,13 @@ function renderComparativo(per){
 
   let html = '';
 
-  // BLOCO 1: ESTOQUE EMPURRADO
+  // BLOCO 1: ESTOQUE CRESCENDO
   let html1 = '';
   niveis.forEach(n => {
     html1 += `<span class="comp-bloco-subtitle">Por ${n.nome}</span>${renderItens(n.dict, 'empurrado', n.badge, n.nome)}`;
   });
   html += `<div class="comp-bloco empurrado">
-    <div class="comp-bloco-header">Estoque Empurrado <span style="font-size:10px;font-weight:400;color:#94a3b8">(SI cresce mais que SO)</span></div>
+    <div class="comp-bloco-header">Estoque Crescendo <span style="font-size:10px;font-weight:400;color:#94a3b8">(SI cresce mais que SO)</span></div>
     ${html1}
   </div>`;
 
@@ -5591,7 +5591,7 @@ function renderFranquia(data, per){
     `;
   });
   html += `</tbody></table></div>`;
-  html += `<div style="font-size:10px;color:var(--ink-muted);margin-top:8px;font-style:italic">Gap SI-SO > 5pp pode indicar descompasso (estoque empurrado ou demanda em ajuste). <b>n/d</b> = franquia sem sell-out disponível.</div>`;
+  html += `<div style="font-size:10px;color:var(--ink-muted);margin-top:8px;font-style:italic">Gap SI-SO > 5pp pode indicar descompasso (estoque crescendo ou demanda em ajuste). <b>n/d</b> = franquia sem sell-out disponível.</div>`;
   document.getElementById('franquiaBarras').innerHTML = html;
 }
 
@@ -6102,7 +6102,7 @@ function renderInsights(data, per){
         const gap = l.siVar - l.soVar;
         if(Math.abs(gap) > 5){
           comparativoSO = gap > 5
-            ? ` · ⚠️ SI ${gap.toFixed(1)}pp acima do SO (possível empurrado)`
+            ? ` · ⚠️ SI ${gap.toFixed(1)}pp acima do SO (possível estoque crescendo)`
             : ` · ⚠️ SO ${Math.abs(gap).toFixed(1)}pp acima do SI (demanda forte)`;
         } else {
           comparativoSO = ` · SO ${l.soVar>=0?'+':''}${l.soVar.toFixed(1)}% (alinhado)`;
@@ -6500,6 +6500,10 @@ function renderTargetsFinanceiros(data, per){
     // Real e Target por produto - MÊS e YTD
     const realMesPorProduto = somarPeriodo(data, [{ano:anoAtual, mes:mesAtual}], COLS.PRODUTO);
     const realYTDPorProduto = somarPeriodo(data, periodoYTD, COLS.PRODUTO);
+    // Ano anterior (YoY): mesmo mês e mesmo YTD do ano passado
+    const realMesAntPorProduto = somarPeriodo(data, [{ano:anoAtual-1, mes:mesAtual}], COLS.PRODUTO);
+    const periodoYTDAnt = periodoYTD.map(p => ({ano:p.ano-1, mes:p.mes}));
+    const realYTDAntPorProduto = somarPeriodo(data, periodoYTDAnt, COLS.PRODUTO);
     const tgtMesPorProduto = {};
     targetsMesAtual.forEach(t => {
       const p = t.PRODUTO;
@@ -6523,6 +6527,8 @@ function renderTargetsFinanceiros(data, per){
         franquia: franquiaDoProduto[p] || '—',
         realMes: realMesP, tgtMes: tgtMesP,
         realYTD: realYTDP, tgtYTD: tgtYTDP,
+        realMesAnt: realMesAntPorProduto[p]?.valor || 0,
+        realYTDAnt: realYTDAntPorProduto[p]?.valor || 0,
         gapYTD: formatGap(realYTDP, tgtYTDP)
       };
     }).filter(x => x);
@@ -6550,6 +6556,8 @@ function renderTargetsFinanceiros(data, per){
       const totTgtMes = linhasProd.reduce((s,r) => s + r.tgtMes, 0);
       const totRealYTD = linhasProd.reduce((s,r) => s + r.realYTD, 0);
       const totTgtYTD = linhasProd.reduce((s,r) => s + r.tgtYTD, 0);
+      const totRealMesAnt = linhasProd.reduce((s,r) => s + (r.realMesAnt||0), 0);
+      const totRealYTDAnt = linhasProd.reduce((s,r) => s + (r.realYTDAnt||0), 0);
       const gapTotalYTD = formatGap(totRealYTD, totTgtYTD);
 
       const nAcima = linhasProd.filter(r => r.gapYTD.pct !== null && r.gapYTD.pct >= 0).length;
@@ -6557,12 +6565,21 @@ function renderTargetsFinanceiros(data, per){
       const nCritico = linhasProd.filter(r => r.gapYTD.pct !== null && r.gapYTD.pct < -10).length;
 
       const mesNomeT = MESES_NOME[mesAtual-1];
+      // Atingimento como GAP: 110%→+10%, 90%→-10%
       const cellPct = (real, tgt) => {
         if(!tgt) return '<span style="color:#94a3b8">—</span>';
-        const pct = real/tgt*100;
-        const cor = pct >= 100 ? '#10b981' : (pct >= 90 ? '#D97706' : '#ef4444');
-        const ic = pct >= 100 ? '✅' : (pct >= 90 ? '⚠️' : '🚨');
-        return `<b style="color:${cor}">${ic} ${pct.toFixed(0)}%</b>`;
+        const gap = (real/tgt*100) - 100;
+        const cor = gap >= 0 ? '#10b981' : (gap >= -10 ? '#D97706' : '#ef4444');
+        const ic = gap >= 0 ? '✅' : (gap >= -10 ? '⚠️' : '🚨');
+        return `<b style="color:${cor}">${ic} ${gap>=0?'+':''}${gap.toFixed(0)}%</b>`;
+      };
+      // Variação vs ano anterior (YoY): só o %
+      const cellYoY = (atual, anterior) => {
+        if(!anterior) return atual > 0 ? '<b style="color:#10b981">novo</b>' : '<span style="color:#94a3b8">—</span>';
+        const v = (atual/anterior*100) - 100;
+        const cor = v >= 0 ? '#10b981' : '#ef4444';
+        const ic = v >= 0 ? '▲' : '▼';
+        return `<b style="color:${cor}">${ic} ${v>=0?'+':''}${v.toFixed(0)}%</b>`;
       };
 
       html += `
@@ -6581,27 +6598,43 @@ function renderTargetsFinanceiros(data, per){
                 <th>Franquia / Produto</th>
                 <th class="num">Real ${mesNomeT}</th>
                 <th class="num">Tgt ${mesNomeT}</th>
-                <th class="num">% Mês</th>
+                <th class="num">vs Tgt Mês</th>
+                <th class="num">vs ${anoAtual-1} Mês</th>
                 <th class="num">Real YTD</th>
                 <th class="num">Tgt YTD</th>
-                <th class="num">% YTD</th>
+                <th class="num">vs Tgt YTD</th>
+                <th class="num">vs ${anoAtual-1} YTD</th>
               </tr>
             </thead>
             <tbody>
       `;
 
       franquiasOrdenadas.forEach(fr => {
-        const linhas = porFranquia[fr].sort((a,b) => (a.gapYTD.pct ?? 0) - (b.gapYTD.pct ?? 0));
+        // Ordenar: positivos (≥100%) primeiro, depois quedas (<100% com target), sem target por último
+        const classeOrd = (r) => {
+          if(!r.tgtYTD) return 2;                    // sem target → último
+          return (r.realYTD/r.tgtYTD*100) >= 100 ? 0 : 1; // positivo → 0, queda → 1
+        };
+        const linhas = porFranquia[fr].sort((a,b) => {
+          const ca = classeOrd(a), cb = classeOrd(b);
+          if(ca !== cb) return ca - cb;
+          // dentro da mesma classe: positivos do maior %, quedas do pior % (mais crítico primeiro)
+          const pa = a.tgtYTD ? a.realYTD/a.tgtYTD : 0;
+          const pb = b.tgtYTD ? b.realYTD/b.tgtYTD : 0;
+          return ca === 0 ? (pb - pa) : (pa - pb);
+        });
         // Subtotais da franquia
         const sRealMes = linhas.reduce((s,r) => s+r.realMes, 0);
         const sTgtMes = linhas.reduce((s,r) => s+r.tgtMes, 0);
         const sRealYTD = linhas.reduce((s,r) => s+r.realYTD, 0);
         const sTgtYTD = linhas.reduce((s,r) => s+r.tgtYTD, 0);
+        const sRealMesAnt = linhas.reduce((s,r) => s+(r.realMesAnt||0), 0);
+        const sRealYTDAnt = linhas.reduce((s,r) => s+(r.realYTDAnt||0), 0);
 
         // Cabeçalho da franquia
         html += `
           <tr style="background:#EEF2FF">
-            <td colspan="7" style="padding:6px 12px;font-weight:800;color:#003595;font-size:12px;text-transform:uppercase;letter-spacing:0.3px">🏷️ ${fr}</td>
+            <td colspan="9" style="padding:6px 12px;font-weight:800;color:#003595;font-size:12px;text-transform:uppercase;letter-spacing:0.3px">🏷️ ${fr}</td>
           </tr>
         `;
         // Produtos da franquia
@@ -6612,9 +6645,11 @@ function renderTargetsFinanceiros(data, per){
               <td class="num">${r.realMes ? fmt(r.realMes) : '—'}</td>
               <td class="num" style="color:#64748b">${r.tgtMes ? fmt(r.tgtMes) : '—'}</td>
               <td class="num">${cellPct(r.realMes, r.tgtMes)}</td>
+              <td class="num">${cellYoY(r.realMes, r.realMesAnt)}</td>
               <td class="num">${r.realYTD ? fmt(r.realYTD) : '—'}</td>
               <td class="num" style="color:#64748b">${r.tgtYTD ? fmt(r.tgtYTD) : '—'}</td>
               <td class="num">${cellPct(r.realYTD, r.tgtYTD)}</td>
+              <td class="num">${cellYoY(r.realYTD, r.realYTDAnt)}</td>
             </tr>
           `;
         });
@@ -6625,28 +6660,36 @@ function renderTargetsFinanceiros(data, per){
             <td class="num" style="font-weight:700">${sRealMes ? fmt(sRealMes) : '—'}</td>
             <td class="num" style="font-weight:700;color:#64748b">${sTgtMes ? fmt(sTgtMes) : '—'}</td>
             <td class="num" style="font-weight:700">${cellPct(sRealMes, sTgtMes)}</td>
+            <td class="num" style="font-weight:700">${cellYoY(sRealMes, sRealMesAnt)}</td>
             <td class="num" style="font-weight:700">${sRealYTD ? fmt(sRealYTD) : '—'}</td>
             <td class="num" style="font-weight:700;color:#64748b">${sTgtYTD ? fmt(sTgtYTD) : '—'}</td>
             <td class="num" style="font-weight:700">${cellPct(sRealYTD, sTgtYTD)}</td>
+            <td class="num" style="font-weight:700">${cellYoY(sRealYTD, sRealYTDAnt)}</td>
           </tr>
         `;
       });
 
       // Total geral
+      const gapTotMesTxt = totTgtMes ? (()=>{const g=(totRealMes/totTgtMes*100)-100;return (g>=0?'+':'')+g.toFixed(0)+'%';})() : '—';
+      const gapTotYTDTxt = totTgtYTD ? (()=>{const g=(totRealYTD/totTgtYTD*100)-100;return (g>=0?'+':'')+g.toFixed(0)+'%';})() : '—';
+      const yoyTotMesTxt = totRealMesAnt ? (()=>{const v=(totRealMes/totRealMesAnt*100)-100;return (v>=0?'▲ +':'▼ ')+v.toFixed(0)+'%';})() : '—';
+      const yoyTotYTDTxt = totRealYTDAnt ? (()=>{const v=(totRealYTD/totRealYTDAnt*100)-100;return (v>=0?'▲ +':'▼ ')+v.toFixed(0)+'%';})() : '—';
       html += `
               <tr style="border-top:3px solid #003595;background:#003595;color:white;font-weight:800">
                 <td style="color:white"><b>TOTAL GERAL</b></td>
                 <td class="num" style="color:white"><b>${totRealMes ? fmt(totRealMes) : '—'}</b></td>
                 <td class="num" style="color:#CBD5E1"><b>${totTgtMes ? fmt(totTgtMes) : '—'}</b></td>
-                <td class="num" style="color:white"><b>${totTgtMes ? (totRealMes/totTgtMes*100).toFixed(0)+'%' : '—'}</b></td>
+                <td class="num" style="color:white"><b>${gapTotMesTxt}</b></td>
+                <td class="num" style="color:white"><b>${yoyTotMesTxt}</b></td>
                 <td class="num" style="color:white"><b>${totRealYTD ? fmt(totRealYTD) : '—'}</b></td>
                 <td class="num" style="color:#CBD5E1"><b>${totTgtYTD ? fmt(totTgtYTD) : '—'}</b></td>
-                <td class="num" style="color:white"><b>${totTgtYTD ? (totRealYTD/totTgtYTD*100).toFixed(0)+'%' : '—'}</b></td>
+                <td class="num" style="color:white"><b>${gapTotYTDTxt}</b></td>
+                <td class="num" style="color:white"><b>${yoyTotYTDTxt}</b></td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div style="font-size:10px;color:var(--ink-muted);margin-top:6px;font-style:italic">Agrupado por franquia com subtotais. Mês = ${mesNomeT}/${anoAtual} · YTD = acumulado Jan→${mesNomeT}. ✅ ≥100% · ⚠️ 90-99% · 🚨 abaixo de 90%.</div>
+        <div style="font-size:10px;color:var(--ink-muted);margin-top:6px;font-style:italic">Agrupado por franquia com subtotais. Mês = ${mesNomeT}/${anoAtual} · YTD = Jan→${mesNomeT}. <b>vs Tgt</b> = real÷target-100 (✅≥0% ⚠️-10% 🚨<-10%) · <b>vs ${anoAtual-1}</b> = variação sobre o ano anterior.</div>
       `;
     }
   }
@@ -9320,7 +9363,7 @@ async function exportPPTX(){
 
       // Renderizar 4 quadrantes (2x2)
       const blocos = [
-        {classe:'empurrado', titulo:'🚨 ESTOQUE EMPURRADO', subtitulo:'(SI cresce mais que SO)', cor:'9B1A2D', fill:'FEF2F2', x:0.3, y:1.5},
+        {classe:'empurrado', titulo:'🚨 ESTOQUE CRESCENDO', subtitulo:'(SI cresce mais que SO)', cor:'9B1A2D', fill:'FEF2F2', x:0.3, y:1.5},
         {classe:'ruptura', titulo:'🆘 RUPTURA / OPORTUNIDADE', subtitulo:'(SO cresce mais que SI)', cor:'B45309', fill:'FFFBEB', x:6.7, y:1.5},
         {classe:'saudavel', titulo:'✅ SAUDÁVEL', subtitulo:'(gap ≤ 5pp)', cor:'00AE44', fill:'F0FDF4', x:0.3, y:4.0},
         {classe:'queda', titulo:'📉 AMBOS EM QUEDA', subtitulo:'(demanda real caindo)', cor:'475569', fill:'F8FAFC', x:6.7, y:4.0}
@@ -9350,7 +9393,7 @@ async function exportPPTX(){
           else if(b.classe === 'queda') filtrados.sort((a,b) => a.siVar - b.siVar);
           else filtrados.sort((a,b) => Math.abs(a.gap) - Math.abs(b.gap));
 
-          const top2 = filtrados.slice(0, 2);
+          const top2 = filtrados.slice(0, 3);
           // Sublabel
           sComp.addText(`${n.label.toUpperCase()}`, {
             x:b.x+0.2, y:yOffset, w:6.0, h:0.2, fontSize:8, bold:true, color:CINZA
@@ -9374,7 +9417,7 @@ async function exportPPTX(){
       });
 
       // Rodapé
-      sComp.addText('💡 Mostrando até 2 itens por categoria, em cada nível (Produto, Rede, Franquia). Threshold: produtos e redes com sell-in ≥ R$ 100k.', {
+      sComp.addText('💡 Mostrando até 3 itens por categoria, em cada nível (Produto, Rede, Franquia). Threshold: produtos e redes com sell-in ≥ R$ 100k.', {
         x:0.3, y:6.6, w:12.7, h:0.3, fontSize:9, italic:true, color:CINZA, align:'center'
       });
     }
@@ -9472,7 +9515,7 @@ async function exportPPTX(){
         let txtSO;
         if(Math.abs(gapSO) > 5){
           txtSO = gapSO > 5
-            ? `Sell-out ${so.soVar>=0?'+':''}${so.soVar.toFixed(1)}% — SI ${gapSO.toFixed(1)}pp acima (possível estoque empurrado)`
+            ? `Sell-out ${so.soVar>=0?'+':''}${so.soVar.toFixed(1)}% — SI ${gapSO.toFixed(1)}pp acima (possível estoque crescendo)`
             : `Sell-out ${so.soVar>=0?'+':''}${so.soVar.toFixed(1)}% — SO ${Math.abs(gapSO).toFixed(1)}pp acima do SI (demanda forte)`;
         } else {
           txtSO = `Sell-out ${so.soVar>=0?'+':''}${so.soVar.toFixed(1)}% — alinhado ao sell-in`;
@@ -10971,7 +11014,7 @@ async function exportPPTX(){
       // Análise de gap
       const gapTotal = siD.reduce((s,v) => s+v, 0) - soD.reduce((s,v) => s+v, 0);
       const sinalGap = gapTotal >= 0 ? '+' : '-';
-      const tipoGap = gapTotal >= 0 ? 'SI > SO (estoque empurrado)' : 'SO > SI (demanda forte)';
+      const tipoGap = gapTotal >= 0 ? 'SI > SO (estoque crescendo)' : 'SO > SI (demanda forte)';
       sDiff.addShape(pptx.ShapeType.rect, {x:0.3, y:6.95, w:12.7, h:0.4, fill:{color:'FEF3C7'}, line:{color:'D97706', width:1}});
       sDiff.addText([
         {text:'💡 Gap total 12m: ', options:{fontSize:11, bold:true, color:'92400E'}},
@@ -11101,8 +11144,18 @@ async function exportPPTX(){
           sTgt.addText(`${c.gap.icon} ${c.gap.label}`, {x:xC+0.2, y:2.6, w:3.7, h:0.5, fontSize:18, bold:true, color:c.gap.cor, fontFace:'Open Sans'});
         });
 
+        // Rodapé do slide 1 (resumo)
+        sTgt.addText(`Métrica: ${mLabel} · Mês = ${MESES_NOME[mesAtualT-1]}/${anoAtualT} · YTD = Jan→${MESES_NOME[mesAtualT-1]} · Filtros: ${franquiasSelecionadas.length ? franquiasSelecionadas.join(', ') : 'todas franquias'}`, {
+          x:0.4, y:6.9, w:12.5, h:0.3, fontSize:10, italic:true, color:CINZA, fontFace:'Open Sans'
+        });
+
+        // ===== SLIDE 2: TABELA DETALHADA (maior, página própria) =====
+        const sTgt2 = pptx.addSlide();
+        sTgt2.background = {color: BRANCO};
+        addHeader(sTgt2, `🎯 Targets Financeiros · Detalhe por Franquia ${mLabel}`);
+
         // Tabela: atingimento por FRANQUIA e PRODUTO (mês + YTD), igual ao HTML
-        sTgt.addText('Detalhe por Franquia e Produto', {x:0.4, y:3.55, w:12.5, h:0.3, fontSize:12, bold:true, color:AZUL, fontFace:'Open Sans'});
+        sTgt2.addText('Detalhe por Franquia e Produto', {x:0.4, y:0.95, w:12.5, h:0.3, fontSize:14, bold:true, color:AZUL, fontFace:'Open Sans'});
 
         // Mapear franquia de cada produto (targets + base)
         const franquiaDoProdutoT = {};
@@ -11119,6 +11172,10 @@ async function exportPPTX(){
             .reduce((s, r) => s + getValor(r), 0);
           const realYTDP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] <= mesAtualT)
             .reduce((s, r) => s + getValor(r), 0);
+          const realMesAntP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT-1 && r[COLS.MES_NUM] === mesAtualT)
+            .reduce((s, r) => s + getValor(r), 0);
+          const realYTDAntP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT-1 && r[COLS.MES_NUM] <= mesAtualT)
+            .reduce((s, r) => s + getValor(r), 0);
           const tgtMesP = targetsF.filter(t => t.PRODUTO === prod && +t.ANO === anoAtualT && +t.MES_NUM === mesAtualT)
             .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
           const tgtYTDP = targetsF.filter(t => t.PRODUTO === prod && +t.ANO === anoAtualT && +t.MES_NUM <= mesAtualT)
@@ -11126,7 +11183,8 @@ async function exportPPTX(){
           if(tgtYTDP === 0 && realYTDP === 0) return null;
           return {
             produto: prod, franquia: franquiaDoProdutoT[prod] || '—',
-            realMes: realMesP, tgtMes: tgtMesP, realYTD: realYTDP, tgtYTD: tgtYTDP
+            realMes: realMesP, tgtMes: tgtMesP, realYTD: realYTDP, tgtYTD: tgtYTDP,
+            realMesAnt: realMesAntP, realYTDAnt: realYTDAntP
           };
         }).filter(x => x);
 
@@ -11142,90 +11200,115 @@ async function exportPPTX(){
             if(ia===-1) return 1; if(ib===-1) return -1; return ia-ib;
           });
 
-          // Helper de % com cor/ícone
+          // Atingimento como GAP: 110%→+10%, 90%→-10%
           const pctCell = (real, tgt) => {
-            if(!tgt) return {text:'—', options:{fontSize:8, color:CINZA, align:'center'}};
-            const pct = real/tgt*100;
-            const cor = pct >= 100 ? VERDE : (pct >= 90 ? LARANJA : VERMELHO);
-            const ic = pct >= 100 ? '✅' : (pct >= 90 ? '⚠️' : '🚨');
-            return {text:`${ic} ${pct.toFixed(0)}%`, options:{fontSize:8, color:cor, align:'center', bold:true}};
+            if(!tgt) return {text:'—', options:{fontSize:11, color:CINZA, align:'center'}};
+            const gap = (real/tgt*100) - 100;
+            const cor = gap >= 0 ? VERDE : (gap >= -10 ? LARANJA : VERMELHO);
+            const ic = gap >= 0 ? '✅' : (gap >= -10 ? '⚠️' : '🚨');
+            return {text:`${ic} ${gap>=0?'+':''}${gap.toFixed(0)}%`, options:{fontSize:11, color:cor, align:'center', bold:true}};
+          };
+          // Variação vs ano anterior (YoY)
+          const yoyCell = (atual, anterior) => {
+            if(!anterior) return {text: atual>0?'novo':'—', options:{fontSize:11, color: atual>0?VERDE:CINZA, align:'center'}};
+            const v = (atual/anterior*100) - 100;
+            const cor = v >= 0 ? VERDE : VERMELHO;
+            const ic = v >= 0 ? '▲' : '▼';
+            return {text:`${ic} ${v>=0?'+':''}${v.toFixed(0)}%`, options:{fontSize:11, color:cor, align:'center', bold:true}};
           };
 
-          // Cabeçalho
+          // Cabeçalho (9 colunas)
           const mesNomeT = MESES_NOME[mesAtualT-1];
+          const HCAB = (t)=>({text:t, options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:11, align:'center'}});
           const rows = [[
-            {text:'Franquia / Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9}},
-            {text:`Real ${mesNomeT}`, options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
-            {text:`Tgt ${mesNomeT}`, options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
-            {text:'% Mês', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
-            {text:'Real YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
-            {text:'Tgt YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}},
-            {text:'% YTD', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9, align:'center'}}
+            {text:'Franquia / Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:11}},
+            HCAB(`Real ${mesNomeT}`), HCAB(`Tgt ${mesNomeT}`), HCAB('vs Tgt Mês'), HCAB(`vs ${anoAtualT-1} Mês`),
+            HCAB('Real YTD'), HCAB('Tgt YTD'), HCAB('vs Tgt YTD'), HCAB(`vs ${anoAtualT-1} YTD`)
           ]];
 
-          let totRMes=0, totTMes=0, totRYTD=0, totTYTD=0;
+          let totRMes=0, totTMes=0, totRYTD=0, totTYTD=0, totRMesAnt=0, totRYTDAnt=0;
           frsOrd.forEach(fr => {
+            // Ordenar: positivos (≥100%) → quedas (<100% com target) → sem target
+            const classeOrd = (r) => {
+              if(!r.tgtYTD) return 2;
+              return (r.realYTD/r.tgtYTD*100) >= 100 ? 0 : 1;
+            };
             const linhas = porFr[fr].sort((a,b) => {
-              const pa = a.tgtYTD ? a.realYTD/a.tgtYTD : 9; const pb = b.tgtYTD ? b.realYTD/b.tgtYTD : 9;
-              return pa - pb;
+              const ca = classeOrd(a), cb = classeOrd(b);
+              if(ca !== cb) return ca - cb;
+              const pa = a.tgtYTD ? a.realYTD/a.tgtYTD : 0;
+              const pb = b.tgtYTD ? b.realYTD/b.tgtYTD : 0;
+              return ca === 0 ? (pb - pa) : (pa - pb);
             });
             // Cabeçalho da franquia
-            rows.push([{text:`🏷️ ${fr}`, options:{bold:true, color:AZUL, fill:{color:'EEF2FF'}, fontSize:9, colspan:7}}]);
-            let sRM=0,sTM=0,sRY=0,sTY=0;
+            rows.push([{text:`🏷️ ${fr}`, options:{bold:true, color:AZUL, fill:{color:'EEF2FF'}, fontSize:11, colspan:9}}]);
+            let sRM=0,sTM=0,sRY=0,sTY=0,sRMa=0,sRYa=0;
             linhas.forEach(r => {
               sRM+=r.realMes; sTM+=r.tgtMes; sRY+=r.realYTD; sTY+=r.tgtYTD;
+              sRMa+=(r.realMesAnt||0); sRYa+=(r.realYTDAnt||0);
               rows.push([
-                {text:`  ${r.produto}`, options:{fontSize:8, color:PRETO}},
-                {text:r.realMes?fmt(r.realMes):'—', options:{fontSize:8, color:PRETO, align:'center'}},
-                {text:r.tgtMes?fmt(r.tgtMes):'—', options:{fontSize:8, color:CINZA, align:'center'}},
+                {text:`  ${r.produto}`, options:{fontSize:11, color:PRETO}},
+                {text:r.realMes?fmt(r.realMes):'—', options:{fontSize:11, color:PRETO, align:'center'}},
+                {text:r.tgtMes?fmt(r.tgtMes):'—', options:{fontSize:11, color:CINZA, align:'center'}},
                 pctCell(r.realMes, r.tgtMes),
-                {text:r.realYTD?fmt(r.realYTD):'—', options:{fontSize:8, color:PRETO, align:'center'}},
-                {text:r.tgtYTD?fmt(r.tgtYTD):'—', options:{fontSize:8, color:CINZA, align:'center'}},
-                pctCell(r.realYTD, r.tgtYTD)
+                yoyCell(r.realMes, r.realMesAnt),
+                {text:r.realYTD?fmt(r.realYTD):'—', options:{fontSize:11, color:PRETO, align:'center'}},
+                {text:r.tgtYTD?fmt(r.tgtYTD):'—', options:{fontSize:11, color:CINZA, align:'center'}},
+                pctCell(r.realYTD, r.tgtYTD),
+                yoyCell(r.realYTD, r.realYTDAnt)
               ]);
             });
             // Subtotal da franquia
             rows.push([
-              {text:`  ↳ Subtotal ${fr}`, options:{fontSize:8, color:AZUL_ESCURO, bold:true, fill:{color:'F1F5F9'}}},
-              {text:sRM?fmt(sRM):'—', options:{fontSize:8, bold:true, fill:{color:'F1F5F9'}, align:'center'}},
-              {text:sTM?fmt(sTM):'—', options:{fontSize:8, bold:true, color:CINZA, fill:{color:'F1F5F9'}, align:'center'}},
+              {text:`  ↳ Subtotal ${fr}`, options:{fontSize:11, color:AZUL_ESCURO, bold:true, fill:{color:'F1F5F9'}}},
+              {text:sRM?fmt(sRM):'—', options:{fontSize:11, bold:true, fill:{color:'F1F5F9'}, align:'center'}},
+              {text:sTM?fmt(sTM):'—', options:{fontSize:11, bold:true, color:CINZA, fill:{color:'F1F5F9'}, align:'center'}},
               {...pctCell(sRM,sTM), options:{...pctCell(sRM,sTM).options, fill:{color:'F1F5F9'}, bold:true}},
-              {text:sRY?fmt(sRY):'—', options:{fontSize:8, bold:true, fill:{color:'F1F5F9'}, align:'center'}},
-              {text:sTY?fmt(sTY):'—', options:{fontSize:8, bold:true, color:CINZA, fill:{color:'F1F5F9'}, align:'center'}},
-              {...pctCell(sRY,sTY), options:{...pctCell(sRY,sTY).options, fill:{color:'F1F5F9'}, bold:true}}
+              {...yoyCell(sRM,sRMa), options:{...yoyCell(sRM,sRMa).options, fill:{color:'F1F5F9'}, bold:true}},
+              {text:sRY?fmt(sRY):'—', options:{fontSize:11, bold:true, fill:{color:'F1F5F9'}, align:'center'}},
+              {text:sTY?fmt(sTY):'—', options:{fontSize:11, bold:true, color:CINZA, fill:{color:'F1F5F9'}, align:'center'}},
+              {...pctCell(sRY,sTY), options:{...pctCell(sRY,sTY).options, fill:{color:'F1F5F9'}, bold:true}},
+              {...yoyCell(sRY,sRYa), options:{...yoyCell(sRY,sRYa).options, fill:{color:'F1F5F9'}, bold:true}}
             ]);
-            totRMes+=sRM; totTMes+=sTM; totRYTD+=sRY; totTYTD+=sTY;
+            totRMes+=sRM; totTMes+=sTM; totRYTD+=sRY; totTYTD+=sTY; totRMesAnt+=sRMa; totRYTDAnt+=sRYa;
           });
 
-          // Total geral
-          const totPctMes = totTMes ? (totRMes/totTMes*100).toFixed(0)+'%' : '—';
-          const totPctYTD = totTYTD ? (totRYTD/totTYTD*100).toFixed(0)+'%' : '—';
+          // Total geral (gap + YoY)
+          const gTotMes = totTMes ? ((totRMes/totTMes*100)-100) : null;
+          const gTotYTD = totTYTD ? ((totRYTD/totTYTD*100)-100) : null;
+          const yTotMes = totRMesAnt ? ((totRMes/totRMesAnt*100)-100) : null;
+          const yTotYTD = totRYTDAnt ? ((totRYTD/totRYTDAnt*100)-100) : null;
+          const totGapTxt = (g) => g===null?'—':`${g>=0?'+':''}${g.toFixed(0)}%`;
+          const totYoYTxt = (v) => v===null?'—':`${v>=0?'▲ +':'▼ '}${v.toFixed(0)}%`;
           rows.push([
-            {text:'TOTAL GERAL', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9}},
-            {text:totRMes?fmt(totRMes):'—', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}},
-            {text:totTMes?fmt(totTMes):'—', options:{bold:true, color:'CBD5E1', fill:{color:AZUL}, fontSize:9, align:'center'}},
-            {text:totPctMes, options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}},
-            {text:totRYTD?fmt(totRYTD):'—', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}},
-            {text:totTYTD?fmt(totTYTD):'—', options:{bold:true, color:'CBD5E1', fill:{color:AZUL}, fontSize:9, align:'center'}},
-            {text:totPctYTD, options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}}
+            {text:'TOTAL GERAL', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11}},
+            {text:totRMes?fmt(totRMes):'—', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}},
+            {text:totTMes?fmt(totTMes):'—', options:{bold:true, color:'CBD5E1', fill:{color:AZUL}, fontSize:11, align:'center'}},
+            {text:totGapTxt(gTotMes), options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}},
+            {text:totYoYTxt(yTotMes), options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}},
+            {text:totRYTD?fmt(totRYTD):'—', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}},
+            {text:totTYTD?fmt(totTYTD):'—', options:{bold:true, color:'CBD5E1', fill:{color:AZUL}, fontSize:11, align:'center'}},
+            {text:totGapTxt(gTotYTD), options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}},
+            {text:totYoYTxt(yTotYTD), options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}}
           ]);
 
-          // Altura de linha adaptativa conforme nº de linhas (cabe no slide)
-          const rowHT = rows.length > 22 ? 0.20 : (rows.length > 16 ? 0.24 : 0.28);
-          sTgt.addTable(rows, {
-            x:0.4, y:3.85, w:12.5,
-            colW:[3.8, 1.6, 1.6, 1.1, 1.6, 1.6, 1.1],
+          // Slide dedicado → tabela maior, autoPage liga se passar de uma página
+          const rowHT = rows.length > 24 ? 0.26 : (rows.length > 18 ? 0.30 : 0.36);
+          sTgt2.addTable(rows, {
+            x:0.3, y:1.4, w:12.6,
+            colW:[2.7, 1.2, 1.2, 1.2, 1.3, 1.2, 1.2, 1.2, 1.3],
             border:{type:'solid', pt:0.5, color:'E5E7EB'},
-            rowH:rowHT, valign:'middle', autoPage:false
+            rowH:rowHT, valign:'middle',
+            autoPage:true, autoPageRepeatHeader:true, newSlideStartY:0.8, autoPageLineWeight:-0.5
           });
         } else {
-          sTgt.addText('Sem produtos com target cadastrado nos filtros atuais.', {
-            x:0.4, y:3.9, w:12.5, h:0.4, fontSize:11, italic:true, color:CINZA, fontFace:'Open Sans'
+          sTgt2.addText('Sem produtos com target cadastrado nos filtros atuais.', {
+            x:0.4, y:1.4, w:12.5, h:0.4, fontSize:13, italic:true, color:CINZA, fontFace:'Open Sans'
           });
         }
 
-        // Footer
-        sTgt.addText(`Métrica: ${mLabel} · Mês = ${MESES_NOME[mesAtualT-1]}/${anoAtualT} · YTD = Jan→${MESES_NOME[mesAtualT-1]} · Filtros: ${franquiasSelecionadas.length ? franquiasSelecionadas.join(', ') : 'todas franquias'}`, {
+        // Footer do slide 2
+        sTgt2.addText(`Ordem: positivos → quedas → sem target. ✅ ≥100% · ⚠️ 90-99% · 🚨 <90% · Métrica: ${mLabel}`, {
           x:0.4, y:7.15, w:12.5, h:0.25, fontSize:8, italic:true, color:CINZA, fontFace:'Open Sans'
         });
       }
@@ -11464,7 +11547,7 @@ async function exportPPTX(){
       if(diag.soInfo){
         const so = diag.soInfo;
         const diagTxt = Math.abs(so.gap) > 5
-          ? (so.gap > 5 ? '⚠️ SI acima do SO · risco de estoque empurrado' : '⚠️ SO acima do SI · demanda forte (oportunidade)')
+          ? (so.gap > 5 ? '⚠️ SI acima do SO · risco de estoque crescendo' : '⚠️ SO acima do SI · demanda forte (oportunidade)')
           : '✅ SI e SO alinhados · canal saudável';
         sDiagG.addText([
           {text:'🏭 Sell-in: ', options:{fontSize:11, bold:true, color:'003595'}},
