@@ -1,48 +1,60 @@
-# v10 - Insight Rápido enriquecido no PowerPoint
+# v10 - CORREÇÃO: janela MAT do Sell-out (trazia 11 meses)
 
-## 🎯 Problema
-O card "Insight Rápido" do HTML mostrava análise rica (MACRO Brasil com
-Performance, Decomposição, Concentração, Sell-out cruzado), mas no PPT
-o bloco GERAL estava resumido a 2-3 linhas.
+## 🐛 Problema reportado
+Ao selecionar MAT, o sell-out trazia 11 meses (jun/25 a abr/26) em vez de 12.
+O sell-in estava certo (jun/25 a mai/26, pois tem dado suficiente).
+
+## 🔍 Causa raiz
+O sell-out apenas CORTAVA os meses do sell-in que não tinham dado em SO:
+- SI MAT: jun/25 → mai/26 (12 meses)
+- SO disponível até abr/26
+- Lógica antiga: filtrava SI removendo mai/26 (não tem SO) → sobravam 11 meses
 
 ## ✅ Correção
-O bloco GERAL (consolidado) de cada slide de Insight Rápido no PPT agora
-traz os MESMOS insights do MACRO do HTML:
+Nova função `construirPeriodoSO(per)` que monta a janela SO CORRETA:
+- Usa a MESMA QUANTIDADE de meses do período de sell-in (MAT=12, QTR=3, etc.)
+- Mas TERMINANDO no último mês de SO disponível (desloca a janela inteira)
 
-### Antes (PPT)
-- Variação % do grupo
-- UNID/BRL
-- Decomposição (só %)
+Resultado para o caso MAT:
+- SI: jun/25 → mai/26 (12 meses)
+- SO: **mai/25 → abr/26 (12 meses completos)** ✅
+- Comp SO: mai/24 → abr/25 (12 meses)
 
-### Agora (PPT) - igual ao HTML
-1. **Variação consolidada** (cabeçalho)
-2. **Performance** com driver (volume vs preço/mix, com pp de diferença)
-3. **Decomposição** Volume/Preço/Mix COM valores absolutos (não só %)
-4. **Concentração** Top 5 clientes do grupo (com alerta se ≥80%)
-5. **Sell-out cruzado**: diagnóstico de estoque empurrado / demanda /
-   ruptura / equilíbrio (mesma lógica do HTML)
+## 🔧 Aplicação
+A regra foi aplicada em TODOS os ~18 pontos do código que calculavam janela SO:
+- Card Comparativo SI×SO
+- KPIs principais
+- Resumo por rede
+- Top Clientes / Top Produtos SO
+- Crescimento / Queda SO
+- Insights (macro + por franquia)
+- Decomposição
+- Slides do PowerPoint (SI×SO, Targets)
+- calcularSOFranquia / calcularSOFranquiaMulti
 
-### Detalhe por franquia (mantido)
-Cada franquia continua com suas 6 dimensões (Performance, Driver, SI×SO,
-Top produtos, Movers, Top clientes).
-
-## 🔧 Implementação
-- Nova função `calcularSOFranquiaMulti()` no exportPPTX: consolida sell-out
-  de um conjunto de franquias (para o bloco GERAL do grupo)
-- Bloco GERAL reescrito com os 5 insights do MACRO
-- Fonte adaptativa: se o slide tem muitos bullets (>14), reduz a fonte
-  automaticamente (13→12 header, 11→10→9.5 bullets) para caber tudo
+Antes cada lugar tinha a lógica duplicada (function temNoSO + filter + fallback).
+Agora todos chamam `construirPeriodoSO(per)` — fonte única de verdade.
 
 ## ✅ Validações
 - Sintaxe JS OK (3 scripts inline)
-- Python rodou end-to-end (HTML gerado)
-- Fonte adaptativa evita overflow do slide
+- Python end-to-end OK
+- Runtime no browser simulado (jsdom): XLSX ✅, sem ReferenceError ✅
+- 0 ocorrências da lógica antiga restantes
+- Teste do cenário MAT (jun/25→mai/26, SO até abr/26):
+  - 12 meses (não 11) ✅
+  - Começa em mai/25 ✅
+  - Termina em abr/26 ✅
+  - Comp começa em mai/24 ✅
+- Teste QTR (3 meses): fev/26 a abr/26 ✅
 
 ## 🧪 Como testar
-1. Substitua dashboard_template_v10.html (e leve o xlsx.mini.min.js)
+1. Substitua dashboard_template_v10.html (leve o xlsx.mini.min.js junto)
 2. Rode python sales_dashboard_v10.py
-3. Exporte PowerPoint
-4. Veja os 3 slides de Insight Rápido:
-   - Slide 1 (GERAL + DE&OH + CLC): bloco GERAL agora tem Performance,
-     Decomposição com valores, Concentração e Sell-out cruzado
-   - Compare com o card "Insight Rápido" do HTML → mesmos insights
+3. Selecione MAT no filtro de período
+4. Veja o aviso do sell-out: "Sell-out (Mai/2025 a Abr/2026 ...)" = 12 meses
+5. O comparativo SI×SO agora usa 12 meses de cada lado, deslocados pela defasagem M-2
+
+## 💡 Nota sobre o aviso M-2
+Quando o último mês de SO é diferente do último mês do SI (defasagem normal),
+o aviso passa a dizer "Janela do Sell-out deslocada para os meses disponíveis"
+em vez de "filtro cortado" — refletindo que agora é janela completa, não corte.
