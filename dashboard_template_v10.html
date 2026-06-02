@@ -2224,6 +2224,50 @@ function getPeriodos(){
   return {periodoAtual, periodoComp, labelAtual, labelComp, ano, meses, isMAT: false};
 }
 
+// ============================================================
+// Constrói a janela de SELL-OUT correta para o período selecionado.
+// REGRA: o sell-out usa a MESMA QUANTIDADE de meses do período de sell-in,
+// porém TERMINANDO no último mês de sell-out disponível.
+// Ex: MAT (12 meses), SI = jun/25→mai/26, último SO = abr/26
+//     → SO MAT = mai/25→abr/26 (12 meses completos, deslocados)
+// Isso evita o bug de "11 meses" que acontecia ao apenas cortar os meses de SI.
+// Retorna {perAtualSO, perCompSO, setAtualSO, setCompSO, labelAtualSO, labelCompSO} ou null.
+// ============================================================
+function construirPeriodoSO(per){
+  const ultMesSO = selloutUltimoPeriodo;
+  if(!ultMesSO) return null;
+
+  // Quantos meses tem o período atual (MAT=12, QTR=3, YTD=n, mês único=1...)
+  const nMeses = per.periodoAtual.length;
+
+  // Índice absoluto do último mês de SO (ano*12 + mes)
+  const fimIdx = ultMesSO.ano * 12 + (ultMesSO.mes - 1);
+
+  // Construir nMeses terminando em fimIdx (janela completa, deslocada para o SO)
+  const perAtualSO = [];
+  for(let i = nMeses - 1; i >= 0; i--){
+    const idx = fimIdx - i;
+    const ano = Math.floor(idx / 12);
+    const mes = (idx % 12) + 1;
+    perAtualSO.push({ano, mes});
+  }
+  // Período comparativo: mesma janela um ano antes
+  const perCompSO = perAtualSO.map(p => ({ano: p.ano - 1, mes: p.mes}));
+
+  const setAtualSO = new Set(perAtualSO.map(p => `${p.ano}-${p.mes}`));
+  const setCompSO = new Set(perCompSO.map(p => `${p.ano}-${p.mes}`));
+
+  const fmtLabel = (arr) => arr.length === 1
+    ? `${MESES_NOME[arr[0].mes-1]}/${arr[0].ano}`
+    : `${MESES_NOME[arr[0].mes-1]}/${arr[0].ano} a ${MESES_NOME[arr[arr.length-1].mes-1]}/${arr[arr.length-1].ano}`;
+
+  return {
+    perAtualSO, perCompSO, setAtualSO, setCompSO,
+    labelAtualSO: fmtLabel(perAtualSO),
+    labelCompSO: fmtLabel(perCompSO)
+  };
+}
+
 // SOMA usando getValor (que respeita métrica atual)
 function somarPeriodo(data, periodos, groupBy=null){
   const keys = new Set(periodos.map(p=>`${p.ano}-${p.mes}`));
@@ -2884,24 +2928,13 @@ function renderUF(per){
     aviso.textContent = '⚠️ Sell-out não disponível';
     return;
   }
-  function temNoSO(p){
-    return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
-  }
-  let perAtualSO = per.periodoAtual.filter(temNoSO);
-  let perCompSO = perAtualSO.map(p => ({ano: p.ano - 1, mes: p.mes}));
-  if(perAtualSO.length === 0){
-    perAtualSO = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-    perCompSO = [{ano: ultMesSO.ano - 1, mes: ultMesSO.mes}];
-  }
-  const setAtualSO = new Set(perAtualSO.map(p => `${p.ano}-${p.mes}`));
-  const setCompSO = new Set(perCompSO.map(p => `${p.ano}-${p.mes}`));
-
-  const labelAtualSO = perAtualSO.length === 1
-    ? `${MESES_NOME[perAtualSO[0].mes-1]}/${perAtualSO[0].ano}`
-    : `${MESES_NOME[perAtualSO[0].mes-1]}/${perAtualSO[0].ano} a ${MESES_NOME[perAtualSO[perAtualSO.length-1].mes-1]}/${perAtualSO[perAtualSO.length-1].ano}`;
-  const labelCompSO = perCompSO.length === 1
-    ? `${MESES_NOME[perCompSO[0].mes-1]}/${perCompSO[0].ano}`
-    : `${MESES_NOME[perCompSO[0].mes-1]}/${perCompSO[0].ano} a ${MESES_NOME[perCompSO[perCompSO.length-1].mes-1]}/${perCompSO[perCompSO.length-1].ano}`;
+  const _soP = construirPeriodoSO(per);
+  const perAtualSO = _soP.perAtualSO;
+  const perCompSO = _soP.perCompSO;
+  const setAtualSO = _soP.setAtualSO;
+  const setCompSO = _soP.setCompSO;
+  const labelAtualSO = _soP.labelAtualSO;
+  const labelCompSO = _soP.labelCompSO;
 
   aviso.textContent = `· ${labelAtualSO} vs ${labelCompSO} · ${metricaAtual}`;
 
@@ -3153,19 +3186,10 @@ function renderPlanoAcao(data, per){
   const aggProdSO = {};
   const temSellout = rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo;
   if(temSellout){
-    // Filtrar SO ao mesmo período (ajustando M-2)
-    const ultMesSO = selloutUltimoPeriodo;
-    function temNoSO(p){
-      return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
-    }
-    let perAtualSO = per.periodoAtual.filter(temNoSO);
-    let perCompSO = perAtualSO.map(p => ({ano: p.ano - 1, mes: p.mes}));
-    if(perAtualSO.length === 0){
-      perAtualSO = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-      perCompSO = [{ano: ultMesSO.ano - 1, mes: ultMesSO.mes}];
-    }
-    const setAtualSO = new Set(perAtualSO.map(p => `${p.ano}-${p.mes}`));
-    const setCompSO = new Set(perCompSO.map(p => `${p.ano}-${p.mes}`));
+    // Filtrar SO ao mesmo período (janela completa terminando no último mês de SO)
+    const _soP2 = construirPeriodoSO(per);
+    const setAtualSO = _soP2.setAtualSO;
+    const setCompSO = _soP2.setCompSO;
 
     const franquiasSetA = franquiasSelecionadas.length ? new Set(franquiasSelecionadas) : null;
     const tipoSetA = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
@@ -4605,40 +4629,28 @@ function renderComparativo(per){
   const periodoCompSetSI = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
 
   // ============================================================
-  // SELL-OUT: usa MESMOS MESES do filtro do dashboard, cortando para meses disponíveis em SO
-  // (igual ao Card Resumo) - mantém balanceamento atual vs comp
+  // SELL-OUT: janela COMPLETA (mesma qtd de meses do SI) terminando no
+  // último mês de SO disponível. Ex: MAT SI jun/25→mai/26, SO até abr/26
+  // → SO = mai/25→abr/26 (12 meses completos, deslocados pela defasagem M-2)
   // ============================================================
   const ultMesSO = selloutUltimoPeriodo;
-  function temNoSO(p){
-    return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
-  }
-  let periodoSOAtual = per.periodoAtual.filter(temNoSO);
-  let periodoSOComp = periodoSOAtual.map(p => ({ano: p.ano - 1, mes: p.mes}));
-  let avisoCorteSO = false;
+  const _soP3 = construirPeriodoSO(per);
+  const periodoSOAtual = _soP3.perAtualSO;
+  const periodoSOComp = _soP3.perCompSO;
+  // Houve deslocamento? (último mês do SI difere do último mês do SO)
+  const _fimSI = per.periodoAtual[per.periodoAtual.length - 1];
+  const avisoCorteSO = !(_fimSI && _fimSI.ano === ultMesSO.ano && _fimSI.mes === ultMesSO.mes);
 
-  if(periodoSOAtual.length === 0){
-    // Filtro pediu meses futuros - fallback ao último disponível
-    periodoSOAtual = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-    periodoSOComp = [{ano: ultMesSO.ano - 1, mes: ultMesSO.mes}];
-    avisoCorteSO = true;
-  } else if(periodoSOAtual.length < per.periodoAtual.length){
-    avisoCorteSO = true;
-  }
-
-  const periodoAtualSetSO = new Set(periodoSOAtual.map(p => `${p.ano}-${p.mes}`));
-  const periodoCompSetSO = new Set(periodoSOComp.map(p => `${p.ano}-${p.mes}`));
+  const periodoAtualSetSO = _soP3.setAtualSO;
+  const periodoCompSetSO = _soP3.setCompSO;
 
   // Label do período SO para o aviso
-  const labelSOAtual = periodoSOAtual.length === 1
-    ? `${MESES_NOME[periodoSOAtual[0].mes-1]}/${periodoSOAtual[0].ano}`
-    : `${MESES_NOME[periodoSOAtual[0].mes-1]}/${periodoSOAtual[0].ano} a ${MESES_NOME[periodoSOAtual[periodoSOAtual.length-1].mes-1]}/${periodoSOAtual[periodoSOAtual.length-1].ano}`;
-  const labelSOComp = periodoSOComp.length === 1
-    ? `${MESES_NOME[periodoSOComp[0].mes-1]}/${periodoSOComp[0].ano}`
-    : `${MESES_NOME[periodoSOComp[0].mes-1]}/${periodoSOComp[0].ano} a ${MESES_NOME[periodoSOComp[periodoSOComp.length-1].mes-1]}/${periodoSOComp[periodoSOComp.length-1].ano}`;
+  const labelSOAtual = _soP3.labelAtualSO;
+  const labelSOComp = _soP3.labelCompSO;
 
   // Aviso M-2
   const avisoTxt = avisoCorteSO
-    ? `<b>Sell-out tem defasagem (M-2).</b> Filtro do dashboard ajustado: Sell-in (${per.labelAtual} vs ${per.labelComp || '—'}) × Sell-out (${labelSOAtual} vs ${labelSOComp}).`
+    ? `<b>Sell-out tem defasagem (M-2).</b> Janela do Sell-out deslocada para os meses disponíveis: Sell-in (${per.labelAtual} vs ${per.labelComp || '—'}) × Sell-out (${labelSOAtual} vs ${labelSOComp}).`
     : `Comparativo: Sell-in (${per.labelAtual} vs ${per.labelComp || '—'}) × Sell-out (${labelSOAtual} vs ${labelSOComp}).`;
   aviso.innerHTML = avisoTxt;
 
@@ -4913,27 +4925,12 @@ function renderKPIs(data, per){
     const produtoSet = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
     const ultMes = selloutUltimoPeriodo;
 
-    // Helper: chave m s "anoNum-mesNum" eh menor ou igual ao ultimo mes disponivel?
-    function temNoSO(p){
-      return (p.ano < ultMes.ano) || (p.ano === ultMes.ano && p.mes <= ultMes.mes);
-    }
-
-    // 1) Filtra periodoAtual para apenas meses que existem em sell-out
-    let periodoSOAtual = per.periodoAtual.filter(temNoSO);
-    // 2) Comp deslocado 1 ano do atual filtrado (mantém mesmo número de meses)
-    let periodoSOComp = periodoSOAtual.map(p => ({ano: p.ano - 1, mes: p.mes}));
-    let avisoM2 = false;
-
-    // 3) Se filtro pede meses que NAO existem em sell-out, fallback para ultimo disponivel
-    if(periodoSOAtual.length === 0){
-      // Usa ultimo mes disponivel
-      periodoSOAtual = [{ano: ultMes.ano, mes: ultMes.mes}];
-      periodoSOComp = [{ano: ultMes.ano - 1, mes: ultMes.mes}];
-      avisoM2 = true;
-    } else if(periodoSOAtual.length < per.periodoAtual.length){
-      // Filtro foi parcialmente cortado (ex: MAT pediu 12 meses mas SO so tem 10)
-      avisoM2 = true;
-    }
+    // Janela COMPLETA de SO (mesma qtd de meses do SI) terminando no último mês de SO
+    const _soP4 = construirPeriodoSO(per);
+    const periodoSOAtual = _soP4.perAtualSO;
+    const periodoSOComp = _soP4.perCompSO;
+    const _fimSI4 = per.periodoAtual[per.periodoAtual.length - 1];
+    const avisoM2 = !(_fimSI4 && _fimSI4.ano === ultMes.ano && _fimSI4.mes === ultMes.mes);
 
     // 3) MoM SO: ultimo mes do periodoSOAtual vs mes anterior
     const ultMesPer = periodoSOAtual[periodoSOAtual.length - 1];
@@ -5383,16 +5380,12 @@ function renderFranquia(data, per){
     const produtoSet = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
     const produtoSetNorm = produtoSet ? construirSetProdutosNorm(produtoSet) : null;
 
-    // Período SO (cortado M-2)
-    const ultMesSO = selloutUltimoPeriodo;
-    function temNoSO(p){
-      return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
-    }
-    let perSOAtual = per.periodoAtual.filter(temNoSO);
-    if(perSOAtual.length === 0) perSOAtual = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-    const perSOComp = perSOAtual.map(p => ({ano: p.ano-1, mes: p.mes}));
-    const setAtualSO = new Set(perSOAtual.map(p => `${p.ano}-${p.mes}`));
-    const setCompSO = new Set(perSOComp.map(p => `${p.ano}-${p.mes}`));
+    // Período SO (janela completa terminando no último mês de SO)
+    const _soP5 = construirPeriodoSO(per);
+    const perSOAtual = _soP5.perAtualSO;
+    const perSOComp = _soP5.perCompSO;
+    const setAtualSO = _soP5.setAtualSO;
+    const setCompSO = _soP5.setCompSO;
 
     for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
@@ -5662,26 +5655,14 @@ function renderInsights(data, per){
 
     const ultMes = selloutUltimoPeriodo;
 
-    // Sell-out: usa MESMOS MESES do filtro do dashboard, cortando para meses disponíveis em SO
-    function temNoSO_ins(p){
-      return (p.ano < ultMes.ano) || (p.ano === ultMes.ano && p.mes <= ultMes.mes);
-    }
-    let periodoSOAtualIns = per.periodoAtual.filter(temNoSO_ins);
-    let periodoSOCompIns = periodoSOAtualIns.map(p => ({ano: p.ano - 1, mes: p.mes}));
-    if(periodoSOAtualIns.length === 0){
-      periodoSOAtualIns = [{ano: ultMes.ano, mes: ultMes.mes}];
-      periodoSOCompIns = [{ano: ultMes.ano - 1, mes: ultMes.mes}];
-    }
-    const setAtualSOIns = new Set(periodoSOAtualIns.map(p => `${p.ano}-${p.mes}`));
-    const setCompSOIns = new Set(periodoSOCompIns.map(p => `${p.ano}-${p.mes}`));
-
-    // Label do período (igual aos outros cards)
-    const labelSOAtualIns = periodoSOAtualIns.length === 1
-      ? `${MESES_NOME[periodoSOAtualIns[0].mes-1]}/${periodoSOAtualIns[0].ano}`
-      : `${MESES_NOME[periodoSOAtualIns[0].mes-1]}/${periodoSOAtualIns[0].ano} a ${MESES_NOME[periodoSOAtualIns[periodoSOAtualIns.length-1].mes-1]}/${periodoSOAtualIns[periodoSOAtualIns.length-1].ano}`;
-    const labelSOCompIns = periodoSOCompIns.length === 1
-      ? `${MESES_NOME[periodoSOCompIns[0].mes-1]}/${periodoSOCompIns[0].ano}`
-      : `${MESES_NOME[periodoSOCompIns[0].mes-1]}/${periodoSOCompIns[0].ano} a ${MESES_NOME[periodoSOCompIns[periodoSOCompIns.length-1].mes-1]}/${periodoSOCompIns[periodoSOCompIns.length-1].ano}`;
+    // Sell-out: janela completa terminando no último mês de SO
+    const _soPins = construirPeriodoSO(per);
+    const periodoSOAtualIns = _soPins.perAtualSO;
+    const periodoSOCompIns = _soPins.perCompSO;
+    const setAtualSOIns = _soPins.setAtualSO;
+    const setCompSOIns = _soPins.setCompSO;
+    const labelSOAtualIns = _soPins.labelAtualSO;
+    const labelSOCompIns = _soPins.labelCompSO;
 
     let soAtual = 0, soComp = 0;
     for(const r of rawDataSellout){
@@ -6151,19 +6132,12 @@ function renderTargets(data, per){
     const tipoSet = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
     const ultMes = selloutUltimoPeriodo;
 
-    // Período SO baseado no filtro do dashboard, cortando para meses disponíveis em SO
-    function temNoSO(p){
-      return (p.ano < ultMes.ano) || (p.ano === ultMes.ano && p.mes <= ultMes.mes);
-    }
-    let periodoSOAtual = per.periodoAtual.filter(temNoSO);
-    // Comp = atual filtrado deslocado 1 ano (mantém mesmo nº de meses)
-    let periodoSOComp = periodoSOAtual.map(p => ({ano: p.ano - 1, mes: p.mes}));
-    if(periodoSOAtual.length === 0){
-      periodoSOAtual = [{ano: ultMes.ano, mes: ultMes.mes}];
-      periodoSOComp = [{ano: ultMes.ano - 1, mes: ultMes.mes}];
-    }
-    const setAtualSO = new Set(periodoSOAtual.map(p => `${p.ano}-${p.mes}`));
-    const setCompSO = new Set(periodoSOComp.map(p => `${p.ano}-${p.mes}`));
+    // Período SO: janela completa terminando no último mês de SO
+    const _soP6 = construirPeriodoSO(per);
+    const periodoSOAtual = _soP6.perAtualSO;
+    const periodoSOComp = _soP6.perCompSO;
+    const setAtualSO = _soP6.setAtualSO;
+    const setCompSO = _soP6.setCompSO;
 
     for(const r of rawDataSellout){
       if(!selloutCanalOk(r)) continue;
@@ -6486,35 +6460,87 @@ function renderTargetsFinanceiros(data, per){
       </div>
     `;
 
-    // Detalhe por produto YTD
-    const realPorProduto = somarPeriodo(data, periodoYTD, COLS.PRODUTO);
-    const targetPorProduto = {};
+    // Detalhe por produto: agrupar por FRANQUIA, com valores do MÊS e YTD
+    // Mapear franquia de cada produto (via targets + base de dados)
+    const franquiaDoProduto = {};
+    targetsYTD.forEach(t => { if(t.PRODUTO && t.FRANQUIA) franquiaDoProduto[t.PRODUTO] = t.FRANQUIA; });
+    // Completar com a franquia vinda da base (sell-in) para produtos sem target
+    for(const r of data){
+      const p = r[COLS.PRODUTO];
+      if(p && !franquiaDoProduto[p] && r[COLS.FRANQUIA]) franquiaDoProduto[p] = r[COLS.FRANQUIA];
+    }
+
+    // Real e Target por produto - MÊS e YTD
+    const realMesPorProduto = somarPeriodo(data, [{ano:anoAtual, mes:mesAtual}], COLS.PRODUTO);
+    const realYTDPorProduto = somarPeriodo(data, periodoYTD, COLS.PRODUTO);
+    const tgtMesPorProduto = {};
+    targetsMesAtual.forEach(t => {
+      const p = t.PRODUTO;
+      tgtMesPorProduto[p] = (tgtMesPorProduto[p] || 0) + (+t[campoTarget] || 0);
+    });
+    const tgtYTDPorProduto = {};
     targetsYTD.forEach(t => {
       const p = t.PRODUTO;
-      if(!targetPorProduto[p]) targetPorProduto[p] = 0;
-      targetPorProduto[p] += +t[campoTarget] || 0;
+      tgtYTDPorProduto[p] = (tgtYTDPorProduto[p] || 0) + (+t[campoTarget] || 0);
     });
-    const todosProdutos = [...new Set([...Object.keys(realPorProduto), ...Object.keys(targetPorProduto)])];
+
+    const todosProdutos = [...new Set([...Object.keys(realYTDPorProduto), ...Object.keys(tgtYTDPorProduto)])];
     const linhasProd = todosProdutos.map(p => {
-      const real = realPorProduto[p]?.valor || 0;
-      const tgt = targetPorProduto[p] || 0;
-      if(tgt === 0 && real === 0) return null;
-      const g = formatGap(real, tgt);
-      return {produto:p, real, target:tgt, gap:g};
-    }).filter(x => x).sort((a,b) => (a.gap.pct ?? 0) - (b.gap.pct ?? 0));
+      const realMesP = realMesPorProduto[p]?.valor || 0;
+      const realYTDP = realYTDPorProduto[p]?.valor || 0;
+      const tgtMesP = tgtMesPorProduto[p] || 0;
+      const tgtYTDP = tgtYTDPorProduto[p] || 0;
+      if(tgtYTDP === 0 && realYTDP === 0) return null;
+      return {
+        produto: p,
+        franquia: franquiaDoProduto[p] || '—',
+        realMes: realMesP, tgtMes: tgtMesP,
+        realYTD: realYTDP, tgtYTD: tgtYTDP,
+        gapYTD: formatGap(realYTDP, tgtYTDP)
+      };
+    }).filter(x => x);
 
     if(linhasProd.length > 0){
-      const totalRealProd = linhasProd.reduce((s,r) => s + r.real, 0);
-      const totalTgtProd = linhasProd.reduce((s,r) => s + r.target, 0);
-      const gapTotalProd = formatGap(totalRealProd, totalTgtProd);
-      // Contadores de status
-      const nAcima = linhasProd.filter(r => r.gap.pct !== null && r.gap.pct >= 0).length;
-      const nAlerta = linhasProd.filter(r => r.gap.pct !== null && r.gap.pct < 0 && r.gap.pct >= -10).length;
-      const nCritico = linhasProd.filter(r => r.gap.pct !== null && r.gap.pct < -10).length;
+      // Agrupar por franquia
+      const porFranquia = {};
+      linhasProd.forEach(l => {
+        if(!porFranquia[l.franquia]) porFranquia[l.franquia] = [];
+        porFranquia[l.franquia].push(l);
+      });
+      // Ordenar franquias por ordem de prioridade (Glaucoma, Pós-Op, DE&OH, CLC, CL) e produtos por gap
+      const ordemFr = ['GLAUCOMA', 'PÓS-OP. & PATANOL S', 'POS-OP. & PATANOL S', 'DE&OH', 'CLC', 'CL'];
+      const franquiasOrdenadas = Object.keys(porFranquia).sort((a, b) => {
+        const ia = ordemFr.findIndex(o => String(a).toUpperCase().trim() === o);
+        const ib = ordemFr.findIndex(o => String(b).toUpperCase().trim() === o);
+        if(ia === -1 && ib === -1) return a.localeCompare(b);
+        if(ia === -1) return 1;
+        if(ib === -1) return -1;
+        return ia - ib;
+      });
+
+      // Totais gerais
+      const totRealMes = linhasProd.reduce((s,r) => s + r.realMes, 0);
+      const totTgtMes = linhasProd.reduce((s,r) => s + r.tgtMes, 0);
+      const totRealYTD = linhasProd.reduce((s,r) => s + r.realYTD, 0);
+      const totTgtYTD = linhasProd.reduce((s,r) => s + r.tgtYTD, 0);
+      const gapTotalYTD = formatGap(totRealYTD, totTgtYTD);
+
+      const nAcima = linhasProd.filter(r => r.gapYTD.pct !== null && r.gapYTD.pct >= 0).length;
+      const nAlerta = linhasProd.filter(r => r.gapYTD.pct !== null && r.gapYTD.pct < 0 && r.gapYTD.pct >= -10).length;
+      const nCritico = linhasProd.filter(r => r.gapYTD.pct !== null && r.gapYTD.pct < -10).length;
+
+      const mesNomeT = MESES_NOME[mesAtual-1];
+      const cellPct = (real, tgt) => {
+        if(!tgt) return '<span style="color:#94a3b8">—</span>';
+        const pct = real/tgt*100;
+        const cor = pct >= 100 ? '#10b981' : (pct >= 90 ? '#D97706' : '#ef4444');
+        const ic = pct >= 100 ? '✅' : (pct >= 90 ? '⚠️' : '🚨');
+        return `<b style="color:${cor}">${ic} ${pct.toFixed(0)}%</b>`;
+      };
 
       html += `
         <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-          <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase">Detalhe por Produto (YTD)</div>
+          <div style="font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase">Detalhe por Franquia e Produto</div>
           <div style="font-size:11px;display:flex;gap:10px">
             <span style="color:#10b981;font-weight:600">✅ ${nAcima} no alvo</span>
             <span style="color:#D97706;font-weight:600">⚠️ ${nAlerta} em alerta</span>
@@ -6525,40 +6551,75 @@ function renderTargetsFinanceiros(data, per){
           <table class="targets-fin-tabela">
             <thead>
               <tr>
-                <th>Produto</th>
+                <th>Franquia / Produto</th>
+                <th class="num">Real ${mesNomeT}</th>
+                <th class="num">Tgt ${mesNomeT}</th>
+                <th class="num">% Mês</th>
                 <th class="num">Real YTD</th>
-                <th class="num">Target YTD</th>
-                <th class="num">Gap (abs)</th>
-                <th class="num">Gap %</th>
-                <th class="num">% Atingido</th>
+                <th class="num">Tgt YTD</th>
+                <th class="num">% YTD</th>
               </tr>
             </thead>
             <tbody>
-              ${linhasProd.map(r => {
-                const icone = r.gap.pct === null ? '—' : (r.gap.pct >= 0 ? '✅' : (r.gap.pct >= -10 ? '⚠️' : '🚨'));
-                const gapAbs = r.real - r.target;
-                const pctAtingido = r.target > 0 ? (r.real / r.target * 100) : null;
-                return `<tr>
-                  <td><b>${r.produto}</b></td>
-                  <td class="num">${fmt(r.real)}</td>
-                  <td class="num" style="color:#64748b">${r.target ? fmt(r.target) : '—'}</td>
-                  <td class="num" style="color:${gapAbs >= 0 ? '#10b981' : '#ef4444'}">${r.target ? (gapAbs >= 0 ? '+' : '') + fmt(gapAbs) : '—'}</td>
-                  <td class="num"><b style="color:${r.gap.pct === null ? '#94a3b8' : (r.gap.pct >= 0 ? '#10b981' : '#ef4444')}">${icone} ${r.gap.label}</b></td>
-                  <td class="num" style="color:#64748b">${pctAtingido !== null ? pctAtingido.toFixed(0) + '%' : '—'}</td>
-                </tr>`;
-              }).join('')}
-              <tr style="border-top:2px solid #003595;background:#F8FBFE;font-weight:700">
-                <td><b>TOTAL</b></td>
-                <td class="num"><b>${fmt(totalRealProd)}</b></td>
-                <td class="num"><b>${totalTgtProd ? fmt(totalTgtProd) : '—'}</b></td>
-                <td class="num" style="color:${(totalRealProd-totalTgtProd) >= 0 ? '#10b981' : '#ef4444'}"><b>${totalTgtProd ? ((totalRealProd-totalTgtProd) >= 0 ? '+' : '') + fmt(totalRealProd-totalTgtProd) : '—'}</b></td>
-                <td class="num"><b style="color:${gapTotalProd.pct === null ? '#94a3b8' : (gapTotalProd.pct >= 0 ? '#10b981' : '#ef4444')}">${gapTotalProd.pct === null ? '—' : (gapTotalProd.pct >= 0 ? '✅' : (gapTotalProd.pct >= -10 ? '⚠️' : '🚨')) + ' ' + gapTotalProd.label}</b></td>
-                <td class="num"><b>${totalTgtProd > 0 ? (totalRealProd/totalTgtProd*100).toFixed(0) + '%' : '—'}</b></td>
+      `;
+
+      franquiasOrdenadas.forEach(fr => {
+        const linhas = porFranquia[fr].sort((a,b) => (a.gapYTD.pct ?? 0) - (b.gapYTD.pct ?? 0));
+        // Subtotais da franquia
+        const sRealMes = linhas.reduce((s,r) => s+r.realMes, 0);
+        const sTgtMes = linhas.reduce((s,r) => s+r.tgtMes, 0);
+        const sRealYTD = linhas.reduce((s,r) => s+r.realYTD, 0);
+        const sTgtYTD = linhas.reduce((s,r) => s+r.tgtYTD, 0);
+
+        // Cabeçalho da franquia
+        html += `
+          <tr style="background:#EEF2FF">
+            <td colspan="7" style="padding:6px 12px;font-weight:800;color:#003595;font-size:12px;text-transform:uppercase;letter-spacing:0.3px">🏷️ ${fr}</td>
+          </tr>
+        `;
+        // Produtos da franquia
+        linhas.forEach(r => {
+          html += `
+            <tr>
+              <td style="padding-left:24px">${r.produto}</td>
+              <td class="num">${r.realMes ? fmt(r.realMes) : '—'}</td>
+              <td class="num" style="color:#64748b">${r.tgtMes ? fmt(r.tgtMes) : '—'}</td>
+              <td class="num">${cellPct(r.realMes, r.tgtMes)}</td>
+              <td class="num">${r.realYTD ? fmt(r.realYTD) : '—'}</td>
+              <td class="num" style="color:#64748b">${r.tgtYTD ? fmt(r.tgtYTD) : '—'}</td>
+              <td class="num">${cellPct(r.realYTD, r.tgtYTD)}</td>
+            </tr>
+          `;
+        });
+        // Subtotal da franquia
+        html += `
+          <tr style="background:#F8FAFC;border-top:1px solid #CBD5E1;border-bottom:2px solid #CBD5E1">
+            <td style="padding-left:24px;font-weight:700;color:#1E3A5F">↳ Subtotal ${fr}</td>
+            <td class="num" style="font-weight:700">${sRealMes ? fmt(sRealMes) : '—'}</td>
+            <td class="num" style="font-weight:700;color:#64748b">${sTgtMes ? fmt(sTgtMes) : '—'}</td>
+            <td class="num" style="font-weight:700">${cellPct(sRealMes, sTgtMes)}</td>
+            <td class="num" style="font-weight:700">${sRealYTD ? fmt(sRealYTD) : '—'}</td>
+            <td class="num" style="font-weight:700;color:#64748b">${sTgtYTD ? fmt(sTgtYTD) : '—'}</td>
+            <td class="num" style="font-weight:700">${cellPct(sRealYTD, sTgtYTD)}</td>
+          </tr>
+        `;
+      });
+
+      // Total geral
+      html += `
+              <tr style="border-top:3px solid #003595;background:#003595;color:white;font-weight:800">
+                <td style="color:white"><b>TOTAL GERAL</b></td>
+                <td class="num" style="color:white"><b>${totRealMes ? fmt(totRealMes) : '—'}</b></td>
+                <td class="num" style="color:#CBD5E1"><b>${totTgtMes ? fmt(totTgtMes) : '—'}</b></td>
+                <td class="num" style="color:white"><b>${totTgtMes ? (totRealMes/totTgtMes*100).toFixed(0)+'%' : '—'}</b></td>
+                <td class="num" style="color:white"><b>${totRealYTD ? fmt(totRealYTD) : '—'}</b></td>
+                <td class="num" style="color:#CBD5E1"><b>${totTgtYTD ? fmt(totTgtYTD) : '—'}</b></td>
+                <td class="num" style="color:white"><b>${totTgtYTD ? (totRealYTD/totTgtYTD*100).toFixed(0)+'%' : '—'}</b></td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div style="font-size:10px;color:var(--ink-muted);margin-top:6px;font-style:italic">Ordenado pelos maiores gaps (piores primeiro). Real YTD = acumulado Jan→${MESES_NOME[mesAtual-1]}. ✅ no alvo · ⚠️ até -10% · 🚨 abaixo de -10%.</div>
+        <div style="font-size:10px;color:var(--ink-muted);margin-top:6px;font-style:italic">Agrupado por franquia com subtotais. Mês = ${mesNomeT}/${anoAtual} · YTD = acumulado Jan→${mesNomeT}. ✅ ≥100% · ⚠️ 90-99% · 🚨 abaixo de 90%.</div>
       `;
     }
   }
@@ -7190,19 +7251,10 @@ function agregarSellout(groupBy, per){
   // se nao, fallback ao último mês disponível (M-2)
   let setAtualSO, setCompSO;
   if(per && per.periodoAtual && per.periodoAtual.length > 0){
-    // Cortar para meses disponíveis em SO (defasagem M-2)
-    function temNoSO(p){
-      return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
-    }
-    let periodoAtualSO = per.periodoAtual.filter(temNoSO);
-    let periodoCompSO = periodoAtualSO.map(p => ({ano: p.ano - 1, mes: p.mes}));
-    if(periodoAtualSO.length === 0){
-      // fallback: ultMes disponivel
-      periodoAtualSO = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-      periodoCompSO = [{ano: ultMesSO.ano - 1, mes: ultMesSO.mes}];
-    }
-    setAtualSO = new Set(periodoAtualSO.map(p => `${p.ano}-${p.mes}`));
-    setCompSO = new Set(periodoCompSO.map(p => `${p.ano}-${p.mes}`));
+    // Janela completa de SO terminando no último mês de SO
+    const _soP7 = construirPeriodoSO(per);
+    setAtualSO = _soP7.setAtualSO;
+    setCompSO = _soP7.setCompSO;
   } else {
     // Compatibilidade: comportamento antigo (só último mês M-2)
     setAtualSO = new Set([`${ultMesSO.ano}-${ultMesSO.mes}`]);
@@ -7246,18 +7298,14 @@ function agregarSellout(groupBy, per){
 function renderTopClientesSO(per){
   const ultMes = selloutUltimoPeriodo;
 
-  // Calcular label do período seguindo o filtro
-  function temNoSOtc(p){
-    return (p.ano < ultMes.ano) || (p.ano === ultMes.ano && p.mes <= ultMes.mes);
-  }
-  let perAtualSOtc = per.periodoAtual.filter(temNoSOtc);
-  if(perAtualSOtc.length === 0){
-    perAtualSOtc = [{ano: ultMes.ano, mes: ultMes.mes}];
-  }
+  // Label do período seguindo a janela completa de SO
+  const _soPtc = construirPeriodoSO(per);
+  const perAtualSOtc = _soPtc.perAtualSO;
   const labelPerSOtc = perAtualSOtc.length === 1
     ? `${MESES_NOME[perAtualSOtc[0].mes-1]}/${perAtualSOtc[0].ano} vs ${MESES_NOME[perAtualSOtc[0].mes-1]}/${perAtualSOtc[0].ano-1}`
     : `${MESES_NOME[perAtualSOtc[0].mes-1]}/${perAtualSOtc[0].ano} a ${MESES_NOME[perAtualSOtc[perAtualSOtc.length-1].mes-1]}/${perAtualSOtc[perAtualSOtc.length-1].ano}`;
-  const avisoM2tc = perAtualSOtc.length < per.periodoAtual.length ? ' ⚠️ M-2' : '';
+  const _fimSItc = per.periodoAtual[per.periodoAtual.length - 1];
+  const avisoM2tc = !(_fimSItc && _fimSItc.ano === ultMes.ano && _fimSItc.mes === ultMes.mes) ? ' ⚠️ M-2' : '';
   document.getElementById('topClientesAvisoSO').style.display = 'inline-block';
   document.getElementById('topClientesAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelPerSOtc}${avisoM2tc} · ≥50 unid</span>`;
 
@@ -7338,17 +7386,13 @@ function renderTopProdutosSO(per){
   const ultMes = selloutUltimoPeriodo;
 
   // Calcular label do período seguindo o filtro
-  function temNoSOtp(p){
-    return (p.ano < ultMes.ano) || (p.ano === ultMes.ano && p.mes <= ultMes.mes);
-  }
-  let perAtualSOtp = per.periodoAtual.filter(temNoSOtp);
-  if(perAtualSOtp.length === 0){
-    perAtualSOtp = [{ano: ultMes.ano, mes: ultMes.mes}];
-  }
+  const _soPtp = construirPeriodoSO(per);
+  const perAtualSOtp = _soPtp.perAtualSO;
   const labelPerSOtp = perAtualSOtp.length === 1
     ? `${MESES_NOME[perAtualSOtp[0].mes-1]}/${perAtualSOtp[0].ano} vs ${MESES_NOME[perAtualSOtp[0].mes-1]}/${perAtualSOtp[0].ano-1}`
     : `${MESES_NOME[perAtualSOtp[0].mes-1]}/${perAtualSOtp[0].ano} a ${MESES_NOME[perAtualSOtp[perAtualSOtp.length-1].mes-1]}/${perAtualSOtp[perAtualSOtp.length-1].ano}`;
-  const avisoM2tp = perAtualSOtp.length < per.periodoAtual.length ? ' ⚠️ M-2' : '';
+  const _fimSItp = per.periodoAtual[per.periodoAtual.length - 1];
+  const avisoM2tp = !(_fimSItp && _fimSItp.ano === ultMes.ano && _fimSItp.mes === ultMes.mes) ? ' ⚠️ M-2' : '';
   document.getElementById('topProdutosAvisoSO').style.display = 'inline-block';
   document.getElementById('topProdutosAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelPerSOtp}${avisoM2tp} · ≥50 unid</span>`;
 
@@ -7393,17 +7437,13 @@ function renderCrescimento(data, per){
 
     // Label do período SO seguindo o filtro do dashboard
     const ultMesSOc = selloutUltimoPeriodo;
-    function temNoSOc(p){
-      return (p.ano < ultMesSOc.ano) || (p.ano === ultMesSOc.ano && p.mes <= ultMesSOc.mes);
-    }
-    let perAtualSOc = per.periodoAtual.filter(temNoSOc);
-    if(perAtualSOc.length === 0){
-      perAtualSOc = [{ano: ultMesSOc.ano, mes: ultMesSOc.mes}];
-    }
+    const _soPc = construirPeriodoSO(per);
+    const perAtualSOc = _soPc.perAtualSO;
     const labelPerSOc = perAtualSOc.length === 1
       ? `${MESES_NOME[perAtualSOc[0].mes-1]}/${perAtualSOc[0].ano}`
       : `${MESES_NOME[perAtualSOc[0].mes-1]}/${perAtualSOc[0].ano} a ${MESES_NOME[perAtualSOc[perAtualSOc.length-1].mes-1]}/${perAtualSOc[perAtualSOc.length-1].ano}`;
-    const avisoM2c = perAtualSOc.length < per.periodoAtual.length ? ' ⚠️ M-2' : '';
+    const _fimSIc = per.periodoAtual[per.periodoAtual.length - 1];
+    const avisoM2c = !(_fimSIc && _fimSIc.ano === ultMesSOc.ano && _fimSIc.mes === ultMesSOc.mes) ? ' ⚠️ M-2' : '';
     document.getElementById('cresceAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelPerSOc}${avisoM2c} · ≥50 unid</span>`;
 
     const aggC = agregarSellout('GRUPO_PAINEL', per) || {};
@@ -7494,17 +7534,13 @@ function renderQueda(data, per){
 
     // Calcular label do período SO (alinhado ao filtro do dashboard, com fallback M-2)
     const ultMesSOq = selloutUltimoPeriodo;
-    function temNoSOq(p){
-      return (p.ano < ultMesSOq.ano) || (p.ano === ultMesSOq.ano && p.mes <= ultMesSOq.mes);
-    }
-    let perAtualSOq = per.periodoAtual.filter(temNoSOq);
-    if(perAtualSOq.length === 0){
-      perAtualSOq = [{ano: ultMesSOq.ano, mes: ultMesSOq.mes}];
-    }
+    const _soPq = construirPeriodoSO(per);
+    const perAtualSOq = _soPq.perAtualSO;
     const labelPerSOq = perAtualSOq.length === 1
       ? `${MESES_NOME[perAtualSOq[0].mes-1]}/${perAtualSOq[0].ano}`
       : `${MESES_NOME[perAtualSOq[0].mes-1]}/${perAtualSOq[0].ano} a ${MESES_NOME[perAtualSOq[perAtualSOq.length-1].mes-1]}/${perAtualSOq[perAtualSOq.length-1].ano}`;
-    const avisoM2 = perAtualSOq.length < per.periodoAtual.length ? ' ⚠️ M-2' : '';
+    const _fimSIq = per.periodoAtual[per.periodoAtual.length - 1];
+    const avisoM2 = !(_fimSIq && _fimSIq.ano === ultMesSOq.ano && _fimSIq.mes === ultMesSOq.mes) ? ' ⚠️ M-2' : '';
     document.getElementById('quedaAvisoSO').innerHTML = `<span class="fonte-aviso">🛒 Sell-out · ${labelPerSOq}${avisoM2} · ≥50 unid</span>`;
 
     const aggC = agregarSellout('GRUPO_PAINEL', per) || {};
@@ -8150,17 +8186,11 @@ async function exportOnePager(){
     if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
       // Calcular gap SI vs SO no agregado e por cliente
       const ultMesSO = selloutUltimoPeriodo;
-      function temNoSO(p){
-        return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
-      }
-      let perAtualSO = per.periodoAtual.filter(temNoSO);
-      let perCompSO = perAtualSO.map(p => ({ano: p.ano - 1, mes: p.mes}));
-      if(perAtualSO.length === 0){
-        perAtualSO = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-        perCompSO = [{ano: ultMesSO.ano - 1, mes: ultMesSO.mes}];
-      }
-      const setAtualSO = new Set(perAtualSO.map(p => `${p.ano}-${p.mes}`));
-      const setCompSO = new Set(perCompSO.map(p => `${p.ano}-${p.mes}`));
+      const _soP8 = construirPeriodoSO(per);
+      const perAtualSO = _soP8.perAtualSO;
+      const perCompSO = _soP8.perCompSO;
+      const setAtualSO = _soP8.setAtualSO;
+      const setCompSO = _soP8.setCompSO;
 
       // Agregação SI por cliente (no MESMO período do SO pra comparação justa)
       const setSI_compativel = new Set(perAtualSO.map(p => `${p.ano}-${p.mes}`));
@@ -8679,16 +8709,10 @@ async function exportPPTX(){
 
       // Sell-out: respeita o filtro do dashboard (igual aos outros cards)
       // periodoAtual filtrado para meses disponíveis em SO; comp = atual deslocado 1 ano
-      function temNoSO_kpi(p){
-        return (p.ano < ultMes.ano) || (p.ano === ultMes.ano && p.mes <= ultMes.mes);
-      }
-      let periodoSOAtualKpi = per.periodoAtual.filter(temNoSO_kpi);
-      let periodoSOCompKpi = periodoSOAtualKpi.map(p => ({ano: p.ano - 1, mes: p.mes}));
-      if(periodoSOAtualKpi.length === 0){
-        periodoSOAtualKpi = [{ano: ultMes.ano, mes: ultMes.mes}];
-        periodoSOCompKpi = [{ano: ultMes.ano - 1, mes: ultMes.mes}];
-      }
-      const setAtualSOKpi = new Set(periodoSOAtualKpi.map(p => `${p.ano}-${p.mes}`));
+      const _soPkpi = construirPeriodoSO(per);
+      const periodoSOAtualKpi = _soPkpi.perAtualSO;
+      const periodoSOCompKpi = _soPkpi.perCompSO;
+      const setAtualSOKpi = _soPkpi.setAtualSO;
       const setCompSOKpi = new Set(periodoSOCompKpi.map(p => `${p.ano}-${p.mes}`));
 
       // MoM e YTD continuam usando último mês disponível em SO (são conceitos diferentes do filtro)
@@ -9154,17 +9178,10 @@ async function exportPPTX(){
       const periodoCompSetSI_C = new Set(per.periodoComp.map(p => `${p.ano}-${p.mes}`));
 
       // Sell-out: usa MESMOS MESES do filtro do dashboard (cortando para meses disponíveis em SO)
-      const ultMesSOObj_C = selloutUltimoPeriodo;
-      function temNoSO_C(p){
-        return (p.ano < ultMesSOObj_C.ano) || (p.ano === ultMesSOObj_C.ano && p.mes <= ultMesSOObj_C.mes);
-      }
-      let periodoSOAtual_C = per.periodoAtual.filter(temNoSO_C);
-      let periodoSOComp_C = periodoSOAtual_C.map(p => ({ano: p.ano - 1, mes: p.mes}));
-      if(periodoSOAtual_C.length === 0){
-        periodoSOAtual_C = [{ano: ultMesSOObj_C.ano, mes: ultMesSOObj_C.mes}];
-        periodoSOComp_C = [{ano: ultMesSOObj_C.ano - 1, mes: ultMesSOObj_C.mes}];
-      }
-      const periodoAtualSetSO_C = new Set(periodoSOAtual_C.map(p => `${p.ano}-${p.mes}`));
+      const _soPC = construirPeriodoSO(per);
+      const periodoSOAtual_C = _soPC.perAtualSO;
+      const periodoSOComp_C = _soPC.perCompSO;
+      const periodoAtualSetSO_C = _soPC.setAtualSO;
       const periodoCompSetSO_C = new Set(periodoSOComp_C.map(p => `${p.ano}-${p.mes}`));
 
       // Agregação SI
@@ -9354,13 +9371,9 @@ async function exportPPTX(){
     // Calcular SO de uma franquia específica (para SI×SO no insight)
     function calcularSOFranquia(nomeFranquia){
       if(!rawDataSellout || rawDataSellout.length === 0 || !selloutUltimoPeriodo) return null;
-      const ultMesSO = selloutUltimoPeriodo;
-      function temNoSO(p){ return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes); }
-      let perSOAtual = per.periodoAtual.filter(temNoSO);
-      if(perSOAtual.length === 0) perSOAtual = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-      const perSOComp = perSOAtual.map(p => ({ano: p.ano-1, mes: p.mes}));
-      const setAtSO = new Set(perSOAtual.map(p => `${p.ano}-${p.mes}`));
-      const setCpSO = new Set(perSOComp.map(p => `${p.ano}-${p.mes}`));
+      const _soPa = construirPeriodoSO(per);
+      const setAtSO = _soPa.setAtualSO;
+      const setCpSO = _soPa.setCompSO;
       let soA = 0, soC = 0;
       for(const r of rawDataSellout){
         if(!selloutCanalOk(r)) continue;
@@ -9377,13 +9390,9 @@ async function exportPPTX(){
     // Versão para CONJUNTO de franquias (consolida sell-out do grupo)
     function calcularSOFranquiaMulti(franquiasArr){
       if(!rawDataSellout || rawDataSellout.length === 0 || !selloutUltimoPeriodo) return null;
-      const ultMesSO = selloutUltimoPeriodo;
-      function temNoSO(p){ return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes); }
-      let perSOAtual = per.periodoAtual.filter(temNoSO);
-      if(perSOAtual.length === 0) perSOAtual = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-      const perSOComp = perSOAtual.map(p => ({ano: p.ano-1, mes: p.mes}));
-      const setAtSO = new Set(perSOAtual.map(p => `${p.ano}-${p.mes}`));
-      const setCpSO = new Set(perSOComp.map(p => `${p.ano}-${p.mes}`));
+      const _soPm = construirPeriodoSO(per);
+      const setAtSO = _soPm.setAtualSO;
+      const setCpSO = _soPm.setCompSO;
       const frSet = new Set(franquiasArr.map(f => String(f).toUpperCase()));
       let soA = 0, soC = 0;
       for(const r of rawDataSellout){
@@ -9913,16 +9922,10 @@ async function exportPPTX(){
         const tipoSetPpt = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
         const ultMesPpt = selloutUltimoPeriodo;
 
-        function temNoSOPpt(p){
-          return (p.ano < ultMesPpt.ano) || (p.ano === ultMesPpt.ano && p.mes <= ultMesPpt.mes);
-        }
-        let periodoSOAtualPpt = per.periodoAtual.filter(temNoSOPpt);
-        let periodoSOCompPpt = periodoSOAtualPpt.map(p => ({ano: p.ano - 1, mes: p.mes}));
-        if(periodoSOAtualPpt.length === 0){
-          periodoSOAtualPpt = [{ano: ultMesPpt.ano, mes: ultMesPpt.mes}];
-          periodoSOCompPpt = [{ano: ultMesPpt.ano - 1, mes: ultMesPpt.mes}];
-        }
-        const setAtualSOPpt = new Set(periodoSOAtualPpt.map(p => `${p.ano}-${p.mes}`));
+        const _soPppt = construirPeriodoSO(per);
+        const periodoSOAtualPpt = _soPppt.perAtualSO;
+        const periodoSOCompPpt = _soPppt.perCompSO;
+        const setAtualSOPpt = _soPppt.setAtualSO;
         const setCompSOPpt = new Set(periodoSOCompPpt.map(p => `${p.ano}-${p.mes}`));
 
         for(const r of rawDataSellout){
@@ -10299,25 +10302,14 @@ async function exportPPTX(){
       const tipoSetSO = tiposClienteSelecionados.length ? new Set(tiposClienteSelecionados) : null;
       const produtoSetSO = produtosSelecionados.length ? new Set(produtosSelecionados) : null;
 
-      function temNoSOSlide(p){
-        return (p.ano < ultMesSO.ano) || (p.ano === ultMesSO.ano && p.mes <= ultMesSO.mes);
-      }
+      const _soPsl = construirPeriodoSO(per);
+      const periodoSOAtualSlide = _soPsl.perAtualSO;
+      const periodoSOCompSlide = _soPsl.perCompSO;
+      const _fimSIsl = per.periodoAtual[per.periodoAtual.length - 1];
+      const avisoCorteSO = !(_fimSIsl && _fimSIsl.ano === ultMesSO.ano && _fimSIsl.mes === ultMesSO.mes);
 
-      let periodoSOAtualSlide = per.periodoAtual.filter(temNoSOSlide);
-      let periodoSOCompSlide = periodoSOAtualSlide.map(p => ({ano: p.ano - 1, mes: p.mes}));
-      let avisoCorteSO = false;
-
-      if(periodoSOAtualSlide.length === 0){
-        // Filtro pediu meses futuros - fallback ao último disponível
-        periodoSOAtualSlide = [{ano: ultMesSO.ano, mes: ultMesSO.mes}];
-        periodoSOCompSlide = [{ano: ultMesSO.ano - 1, mes: ultMesSO.mes}];
-        avisoCorteSO = true;
-      } else if(periodoSOAtualSlide.length < per.periodoAtual.length){
-        avisoCorteSO = true;
-      }
-
-      const setAtualSO = new Set(periodoSOAtualSlide.map(p => `${p.ano}-${p.mes}`));
-      const setCompSO = new Set(periodoSOCompSlide.map(p => `${p.ano}-${p.mes}`));
+      const setAtualSO = _soPsl.setAtualSO;
+      const setCompSO = _soPsl.setCompSO;
 
       // Label do período SO
       const primMes = periodoSOAtualSlide[0];
