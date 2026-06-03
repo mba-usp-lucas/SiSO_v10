@@ -1724,7 +1724,63 @@ function criarSearchable(idContainer, idInput, idList, opcoes, placeholder, cont
     counter.textContent = `${sel} de ${tot} selecionado(s)`;
   };
 
+  const LIMITE_RENDER = 200; // evita travar com listas enormes (ex: 3000+ clientes)
+
   const renderList = () => {
+    const termo = filtro.toLowerCase();
+    const filtered = opcoes.filter(o => String(o).toLowerCase().includes(termo));
+    if(filtered.length === 0){
+      itemsWrap.innerHTML = '<div class="searchable-empty">Nenhum resultado</div>';
+      return;
+    }
+    // Mostrar selecionados primeiro, depois o resto — e limitar a LIMITE_RENDER
+    const selSet = new Set(arraySelecionados);
+    const ordenados = [...filtered].sort((a,b) => {
+      const sa = selSet.has(a) ? 0 : 1, sb = selSet.has(b) ? 0 : 1;
+      return sa - sb;
+    });
+    const visiveis = ordenados.slice(0, LIMITE_RENDER);
+    const ocultos = ordenados.length - visiveis.length;
+
+    let htmlItens = visiveis.map(o => {
+      const isSel = selSet.has(o);
+      // Escape completo para atributo e texto (nomes com & < > " ' quebravam o dropdown)
+      const esc = String(o)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      return `<div class="searchable-item ${isSel?'selected':''}" data-val="${esc}">
+        <input type="checkbox" ${isSel?'checked':''} />
+        <span class="item-label">${esc}</span>
+        ${contagem&&contagem[o]?`<span class="count">${fmt(contagem[o])}</span>`:''}
+      </div>`;
+    }).join('');
+    if(ocultos > 0){
+      htmlItens += `<div class="searchable-empty">+${ocultos.toLocaleString('pt-BR')} itens. Digite na busca para refinar.</div>`;
+    }
+    itemsWrap.innerHTML = htmlItens;
+  };
+
+  // Event delegation: UM listener no container (em vez de milhares)
+  itemsWrap.addEventListener('click', (e) => {
+    const el = e.target.closest('.searchable-item');
+    if(!el || !itemsWrap.contains(el)) return;
+    const v = el.dataset.val;
+    const idx = arraySelecionados.indexOf(v);
+    if(idx >= 0){
+      arraySelecionados.splice(idx, 1);
+    } else {
+      arraySelecionados.push(v);
+    }
+    const cb = el.querySelector('input[type=checkbox]');
+    if(cb) cb.checked = arraySelecionados.includes(v);
+    if(arraySelecionados.includes(v)) el.classList.add('selected');
+    else el.classList.remove('selected');
+    atualizarLabel();
+    atualizarCounter();
+    onSelect();
+  });
+
+  const _renderListOld = () => {
     const termo = filtro.toLowerCase();
     const filtered = opcoes.filter(o => o.toLowerCase().includes(termo));
     if(filtered.length === 0){
@@ -1733,7 +1789,6 @@ function criarSearchable(idContainer, idInput, idList, opcoes, placeholder, cont
     }
     itemsWrap.innerHTML = filtered.map(o => {
       const isSel = arraySelecionados.includes(o);
-      // Escape completo para atributo e texto (nomes com & < > " ' quebravam o dropdown)
       const esc = String(o)
         .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
         .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -5018,6 +5073,12 @@ function renderKPIs(data, per){
       ? `${MESES_NOME[periodoSOComp[0].mes-1]}/${periodoSOComp[0].ano}`
       : `${MESES_NOME[periodoSOComp[0].mes-1]}/${periodoSOComp[0].ano} a ${MESES_NOME[periodoSOComp[periodoSOComp.length-1].mes-1]}/${periodoSOComp[periodoSOComp.length-1].ano}`;
 
+    // Se NÃO há nenhum movimento de sell-out para os filtros atuais (ex: franquia CL),
+    // tratar como "sem sell-out": so permanece null e o bloco SO não aparece (zerado).
+    const temMovimentoSO = (atual > 0 || comp > 0 || mesUltimoVal > 0 || ytd > 0);
+    if(!temMovimentoSO){
+      so = null;
+    } else {
     so = {
       atual, comp, mom, ytd, ytdAnt,
       mesUltimoVal,
@@ -5032,6 +5093,7 @@ function renderKPIs(data, per){
       avisoMesAnt: `${MESES_NOME[mesAntFinal.mes-1]}/${mesAntFinal.ano}`,
       anoMaxPer
     };
+    }
   }
 
   // Helper: bloco sell-out dentro de um card

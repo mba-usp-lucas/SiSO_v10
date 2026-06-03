@@ -1,45 +1,49 @@
-# v10 - Fix dropdown clientes + Análise por Tipo de Cliente (Rede/Distribuidor)
+# v10 - Fix dropdown clientes (lista grande) + Sell-out zerado em CL
 
-## 🐛 1. Dropdown de Clientes não abria
+## 🐛 BUG 1: Dropdown de clientes não mostrava a lista (3216 de 3216)
 ### Causa
-Os nomes de cliente eram inseridos crus no HTML do dropdown. Nomes com
-caracteres especiais (& < > " ') quebravam a estrutura do dropdown,
-travando a renderização da lista — comum em redes farmacêuticas
-(ex: "Drogasil & Cia", "A&P").
+Com bases grandes (3216 clientes), o dropdown tentava renderizar 3216 divs
++ 3216 listeners de clique de uma vez → travava o navegador. O contador
+mostrava "3216 de 3216" mas a lista não aparecia.
 
 ### Correção
-Escape completo de HTML em cada item do dropdown (& < > " '), aplicado a
-TODOS os filtros searchable (cliente, produto, franquia, fonte, tipo).
-O match interno continua correto (o browser desescapa o data-val).
+1. **Renderização limitada a 200 itens** por vez (mostra selecionados
+   primeiro). Quando há mais, exibe aviso "+N itens. Digite na busca para
+   refinar". A busca filtra normalmente entre todos os clientes.
+2. **Event delegation**: UM listener no container em vez de milhares.
+3. Escape de HTML mantido (& < > " ') para nomes como "Drogasil & Cia".
 
-## ✨ 2. Novo card/slide: Análise por Tipo de Cliente (HTML + PPT)
-Espelha a "Análise por Franquia", porém agrupando por TIPO_CLIENTE
-(Rede / Distribuidor) com variação YoY.
+Resultado: dropdown abre instantâneo mesmo com 3000+ clientes; busca
+funciona; seleção funciona.
 
-### HTML
-Novo card "🏪 Análise por Tipo de Cliente" (logo abaixo do de Franquia):
-- Barras de variação YoY: Total + Rede + Distribuidor
-- Tabela detalhada: SI Atual, SI Δ%, SO Δ%, Gap SI-SO
-- Resumo executivo (quem cresce / quem recua)
-- Detecção robusta: DISTRIB* → Distribuidor; REDE/VAREJO/FARM* → Rede
+## 🐛 BUG 2: Sell-out mostrava valor ao filtrar franquia CL (regressão)
+### Causa
+CL não tem sell-out. Após a refatoração da janela de SO, o card principal
+(KPI) passou a SEMPRE criar o objeto de sell-out (mesmo com soma zero),
+exibindo o bloco "Sell-out" indevidamente.
 
-### PPT
-Novo slide "🏪 Análise por Tipo de Cliente · Variação YoY":
-- 3 cards no topo: Total + Rede + Distribuidor (valor + Δ% YoY)
-- Tabela: Tipo | SI Atual | SI Δ% YoY | SO Δ% YoY | Gap SI-SO
+### Correção
+No card KPI, se NÃO há nenhum movimento de sell-out para os filtros atuais
+(atual + comp + mês + YTD todos zerados), o objeto `so` permanece null e o
+bloco de sell-out NÃO é exibido — voltando ao comportamento correto:
+- Franquia CL (sem SO) → bloco Sell-out OCULTO ✅
+- Franquia Glaucoma (com SO) → bloco Sell-out APARECE ✅
+- Sem filtro / todas → bloco Sell-out APARECE ✅
+
+As referências de cálculo (construirPeriodoSO, _franquiaCI, filtros) foram
+verificadas e continuam corretas — nenhuma foi perdida.
 
 ## ✅ Validações
 - Sintaxe JS OK (3 scripts)
 - Python end-to-end OK
-- Runtime jsdom:
-  - Dropdown cliente ABRE ✅
-  - Card tipo cliente no DOM + renderTipoCliente ✅
-  - Escape testado com nomes "Drogasil & Cia", "A<B", aspas ✅
-- PPT completo: 21 slides (era 20, +1 tipo cliente), ZERO erros ✅
+- Dropdown 3216 itens: renderiza 200, não trava ✅
+- _franquiaCI: CL≠CLC≠Glaucoma (match exato) ✅
+- KPI: CL oculta SO ✅ · Glaucoma mostra SO ✅ · Todas mostra SO ✅
+- PPT completo: 21 slides, zero erros estruturais ✅
 
 ## 🧪 Como testar
 1. Substitua dashboard_template_v10.html (leve o xlsx.mini.min.js junto)
 2. Rode python sales_dashboard_v10.py
-3. Clique no filtro "Cliente" → o dropdown agora abre normalmente
-4. Veja o novo card "🏪 Análise por Tipo de Cliente" (abaixo de Franquia)
-5. Exporte PowerPoint → novo slide de Tipo de Cliente com YoY
+3. Clique no filtro "Cliente" → lista abre (200 itens + busca)
+4. Selecione franquia CL → card de Sell-out fica OCULTO (correto)
+5. Selecione Glaucoma → card de Sell-out aparece normalmente
