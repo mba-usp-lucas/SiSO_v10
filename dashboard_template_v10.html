@@ -9067,6 +9067,14 @@ async function exportPPTX(){
     const PRETO = '0F172A';
     const LARANJA = 'F59E0B';
 
+    // Helper: unifica variantes de produto que devem somar juntas nas tabelas de crescimento.
+    // Caso específico: "complete" + "complete mdpf" → mesma linha.
+    const canonProduto = (nome) => {
+      const up = String(nome || '').toUpperCase().trim();
+      if(/^COMPLETE\b/.test(up)) return 'COMPLETE';  // COMPLETE e COMPLETE MDPF (e variantes) → COMPLETE
+      return nome;
+    };
+
     // Helper: cabeçalho padrão de cada slide
     const addHeader = (slide, titulo) => {
       // Barra superior azul
@@ -11937,19 +11945,19 @@ async function exportPPTX(){
       // Filtro APENAS de franquia
       const franquiasSetC = franquiasSelecionadas.length ? new Set(franquiasSelecionadas.map(f => String(f))) : null;
 
-      // Mapa franquia do produto (targets + base)
+      // Mapa franquia do produto (targets + base) — usa nome canônico
       const frProdC = {};
-      targetsFinanceiros.forEach(t => { if(t.PRODUTO && t.FRANQUIA) frProdC[t.PRODUTO] = t.FRANQUIA; });
+      targetsFinanceiros.forEach(t => { if(t.PRODUTO && t.FRANQUIA) frProdC[canonProduto(t.PRODUTO)] = t.FRANQUIA; });
       for(const r of rawData){
-        const p = r[COLS.PRODUTO];
+        const p = canonProduto(r[COLS.PRODUTO]);
         if(p && !frProdC[p] && r[COLS.FRANQUIA]) frProdC[p] = r[COLS.FRANQUIA];
       }
 
-      // Agregar realizado por produto e ano (só franquia filtrada)
+      // Agregar realizado por produto e ano (só franquia filtrada) — nome canônico
       const real = {}; // {produto: {fy24, fy25, ytd25, ytd26}}
       for(const r of rawData){
         if(franquiasSetC && !franquiasSetC.has(String(r[COLS.FRANQUIA]))) continue;
-        const p = r[COLS.PRODUTO]; if(!p) continue;
+        const p = canonProduto(r[COLS.PRODUTO]); if(!p) continue;
         const ano = +r[COLS.ANO], mes = +r[COLS.MES_NUM];
         const v = getValor(r);
         if(!real[p]) real[p] = {fy24:0, fy25:0, ytd25:0, ytd26:0};
@@ -11958,12 +11966,12 @@ async function exportPPTX(){
         if(ano === anoAtu && mes <= ultMesYTD) real[p].ytd26 += v;
       }
 
-      // Target por produto (campo conforme métrica)
+      // Target por produto (campo conforme métrica) — nome canônico
       const mapCampoC = {UNID:'TARGET_UNID', BRL:'TARGET_BRL', USD:'TARGET_USD'};
       const campoC = mapCampoC[metricaAtual];
       const tgtFY = {}, tgtYTD = {};
       targetsFinanceiros.forEach(t => {
-        const p = t.PRODUTO; if(!p) return;
+        const p = canonProduto(t.PRODUTO); if(!p) return;
         if(franquiasSetC && !franquiasSetC.has(String(t.FRANQUIA))) return;
         if(+t.ANO !== anoAtu) return;
         const val = +t[campoC] || 0;
@@ -12117,34 +12125,37 @@ async function exportPPTX(){
 
       const franquiasSetSO = franquiasSelecionadas.length ? new Set(franquiasSelecionadas.map(f => String(f))) : null;
 
-      // Mapa franquia do produto (targets + base SI)
+      // Mapa franquia do produto (targets + base SI) — nome canônico
       const frProdSO = {};
       if(typeof targetsFinanceiros !== 'undefined'){
-        targetsFinanceiros.forEach(t => { if(t.PRODUTO && t.FRANQUIA) frProdSO[t.PRODUTO] = t.FRANQUIA; });
+        targetsFinanceiros.forEach(t => { if(t.PRODUTO && t.FRANQUIA) frProdSO[canonProduto(t.PRODUTO)] = t.FRANQUIA; });
       }
       for(const r of rawData){
-        const p = r[COLS.PRODUTO];
+        const p = canonProduto(r[COLS.PRODUTO]);
         if(p && !frProdSO[p] && r[COLS.FRANQUIA]) frProdSO[p] = r[COLS.FRANQUIA];
       }
-      // Produtos COM target (para separar de "Outros")
+      // Produtos COM target (para separar de "Outros") — nome canônico
       const temTgtSO = new Set();
       if(typeof targetsFinanceiros !== 'undefined'){
         targetsFinanceiros.forEach(t => {
           if(+t.ANO === anoSO && ((+t.TARGET_UNID||0) > 0 || (+t.TARGET_BRL||0) > 0 || (+t.TARGET_USD||0) > 0)){
-            temTgtSO.add(t.PRODUTO);
+            temTgtSO.add(canonProduto(t.PRODUTO));
           }
         });
       }
 
       // Agregar SELL-OUT em UNIDADES por produto: MAT/YTD/TRI (atual e anterior)
-      const soUnid = {}; // {produto: {matA, matP, ytdA, ytdP, triA, triP}}
+      // Guarda a franquia DO PRÓPRIO registro de sell-out (fonte mais confiável p/ "Outros")
+      const soUnid = {}; // {produto: {matA, matP, ytdA, ytdP, triA, triP, franquia}}
       for(const r of rawDataSellout){
         if(!selloutCanalOk(r)) continue;
         if(franquiasSetSO && !_franquiaCI(r.FRANQUIA, franquiasSetSO)) continue;
-        const p = r.PRODUTO; if(!p) continue;
+        const p = canonProduto(r.PRODUTO); if(!p) continue;
         const u = +r.UNID || 0;  // SEMPRE unidades
         const k = `${r.ANO}-${r.MES}`;
-        if(!soUnid[p]) soUnid[p] = {matA:0, matP:0, ytdA:0, ytdP:0, triA:0, triP:0};
+        if(!soUnid[p]) soUnid[p] = {matA:0, matP:0, ytdA:0, ytdP:0, triA:0, triP:0, franquia:null};
+        // franquia: preferir a do registro SO; fallback no mapa do sell-in/targets
+        if(!soUnid[p].franquia && r.FRANQUIA) soUnid[p].franquia = r.FRANQUIA;
         if(matAtualKeys.has(k)) soUnid[p].matA += u;
         if(matAntKeys.has(k))   soUnid[p].matP += u;
         if(ytdAtualKeys.has(k)) soUnid[p].ytdA += u;
@@ -12159,9 +12170,10 @@ async function exportPPTX(){
       Object.keys(soUnid).forEach(p => {
         const s = soUnid[p];
         if(s.matA===0 && s.matP===0 && s.ytdA===0 && s.ytdP===0 && s.triA===0 && s.triP===0) return;
-        const fr = frProdSO[p] || '—';
+        // Franquia: 1º a do registro SO, 2º o mapa frProdSO (sell-in/targets), 3º '—'
+        const fr = s.franquia || frProdSO[p] || '—';
         if(temTgtSO.has(p)){
-          comTgtSO.push({produto:p, franquia:fr, ...s, ehOutros:false});
+          comTgtSO.push({produto:p, franquia:fr, matA:s.matA, matP:s.matP, ytdA:s.ytdA, ytdP:s.ytdP, triA:s.triA, triP:s.triP, ehOutros:false});
         } else {
           if(!outrosSO[fr]) outrosSO[fr] = {matA:0,matP:0,ytdA:0,ytdP:0,triA:0,triP:0};
           ['matA','matP','ytdA','ytdP','triA','triP'].forEach(kk => outrosSO[fr][kk] += s[kk]);

@@ -1,40 +1,37 @@
-# v10 - Slide Crescimento Sell-out: 3 blocos MAT · YTD · Trimestre (UNIDADES)
+# v10 - Unificar "complete" + "complete mdpf" nas tabelas de crescimento
 
-## ✨ Slide "📦 Crescimento Sell-out por Produto · MAT · YTD · Trimestre · UNIDADES"
-Reformulado para 3 blocos de comparação, cada um com anterior | atual | crescimento%.
-Tudo SEMPRE em unidades (campo UNID), mesmo com métrica BRL/USD no filtro.
+## ✨ Ajuste
+Nas duas tabelas de crescimento do PowerPoint (sell-in e sell-out), os
+produtos "complete" e "complete mdpf" agora são somados numa ÚNICA linha
+"COMPLETE".
 
-### Estrutura da tabela (10 colunas)
-| Franquia/Produto | MAT ant | MAT atual | MAT % | YTD ant | YTD atual | YTD % | TRI ant | TRI atual | TRI % |
+## 🔧 Como funciona
+Helper `canonProduto(nome)` no exportPPTX:
+- Qualquer produto cujo nome COMEÇA com "complete" (complete, Complete,
+  COMPLETE MDPF, complete mdpf 120ml...) → unificado como "COMPLETE"
+- Usa fronteira de palavra (\b) → "Completex" ou outros NÃO são afetados
+- Demais produtos ficam intactos
 
-### Definição dos períodos (terminando no último mês de sell-out)
-- **MAT**: 12 meses terminando no último SO (ex: Mai/25→Abr/26)
-  vs 12 meses imediatamente anteriores (Mai/24→Abr/25)
-- **YTD**: Jan→último mês de SO do ano (Jan-Abr/26) vs mesmos meses do ano anterior (Jan-Abr/25)
-- **TRI**: últimos 3 meses de SO (Fev-Abr/26) vs 3 meses imediatamente anteriores (Nov/25-Jan/26)
+Aplicado em:
+1. Slide "📈 Crescimento por Produto" (sell-in): agregação de realizado,
+   target e mapa de franquia
+2. Slide "📦 Crescimento Sell-out por Produto" (MAT/YTD/TRI): agregação de
+   unidades, target e franquia
 
-### Características
-- Sempre em UNIDADES de sell-out
-- Respeita apenas o filtro de franquia
-- Produtos com target → detalhados; sem target → "Outros" por franquia
-- Subtotal por franquia + Total geral
-- Blocos com cores distintas no cabeçalho (MAT azul-escuro, YTD azul-médio, TRI cinza)
-- Crescimento: verde (+) / vermelho (-) / "novo"
-- autoPage liga se houver muitos produtos
+Resultado: complete e complete mdpf aparecem como uma linha só, com os
+valores somados (real, target e crescimentos calculados sobre o total).
 
 ## ✅ Validações
 - Sintaxe JS OK (3 scripts)
 - Python end-to-end OK
-- Janelas validadas (último SO = Abr/2026):
-  - MAT atual = Mai/25→Abr/26 · MAT ant = Mai/24→Abr/25 ✅
-  - YTD = Jan-Abr/26 vs Jan-Abr/25 ✅
-  - TRI atual = Fev-Abr/26 · TRI ant = Nov/25-Jan/26 ✅
-- Larguras das colunas somam ~12.1 pol (cabem no slide wide) ✅
-- PPT completo gerado: 22 slides, zero erros (métrica = BRL, valores em unidades) ✅
+- canonProduto testado:
+  - complete / Complete / COMPLETE MDPF / complete mdpf → "COMPLETE" ✅
+  - Completex → intacto (não casa) ✅
+  - TRAVATAN e demais → intactos ✅
+- PPT completo: 22 slides, zero erros ✅
 
 ## 🧪 Como testar
 1. Substitua dashboard_template_v10.html (leve o xlsx.mini.min.js junto)
-2. Rode python sales_dashboard_v10.py
-3. Exporte PowerPoint
-4. Veja o slide "📦 Crescimento Sell-out por Produto" com 3 blocos:
-   MAT (ant/atual/%) · YTD (ant/atual/%) · TRI (ant/atual/%), em unidades
+2. Rode python sales_dashboard_v10.py, exporte PowerPoint
+3. Nas tabelas de crescimento (sell-in e sell-out), "complete" e
+   "complete mdpf" aparecem como uma linha única "COMPLETE" com soma
