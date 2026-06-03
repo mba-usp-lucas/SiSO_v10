@@ -1,49 +1,45 @@
-# v10 - 4 novos recursos: SI×SO unidades, Top15 por canal, plano segmentado, Systane Family
+# v10 - Fix dropdown clientes + Análise por Tipo de Cliente (Rede/Distribuidor)
 
-## ✨ 1. Gráfico SI×SO 12 meses em UNIDADES (HTML + PPT)
-- HTML: card "Sell-in vs Sell-out · Diferença" agora tem 2 gráficos:
-  o de valor (métrica atual) E um novo abaixo em UNIDADES
-- PPT: o slide de diferença SI×SO ganhou um 2º slide com a mesma visão
-  em unidades (gap total em unidades no rodapé)
+## 🐛 1. Dropdown de Clientes não abria
+### Causa
+Os nomes de cliente eram inseridos crus no HTML do dropdown. Nomes com
+caracteres especiais (& < > " ') quebravam a estrutura do dropdown,
+travando a renderização da lista — comum em redes farmacêuticas
+(ex: "Drogasil & Cia", "A&P").
 
-## ✨ 2. Top 15 Produtos por CANAL (PPT) - 2 slides
-Antes: 1 slide só com SI×SO de todos os produtos.
-Agora: 2 slides separados por TIPO_CLIENTE:
-- Slide A: Top 15 produtos no canal REDE (Farmácias) · SI×SO lado a lado
-- Slide B: Top 15 produtos no canal DISTRIBUIDOR · SI×SO lado a lado
-Detecção robusta: "DISTRIB*" → Distribuidor; "REDE/VAREJO/FARM*" → Rede.
-Sell-out usa a janela correta (construirPeriodoSO).
+### Correção
+Escape completo de HTML em cada item do dropdown (& < > " '), aplicado a
+TODOS os filtros searchable (cliente, produto, franquia, fonte, tipo).
+O match interno continua correto (o browser desescapa o data-val).
 
-## ✨ 3. Plano de Ação segmentado (PPT) - 2 tabelas
-Antes: 1 tabela com produtos e clientes misturados (coluna "Tipo").
-Agora: 2 tabelas lado a lado no mesmo slide:
-- 📦 Ações por PRODUTO (esquerda)
-- 🏪 Ações por CLIENTE (direita)
-Cada uma com até 7 ações ordenadas por score, com categoria (🔴🟠🟢),
-impacto, Δ% e diagnóstico+ação.
+## ✨ 2. Novo card/slide: Análise por Tipo de Cliente (HTML + PPT)
+Espelha a "Análise por Franquia", porém agrupando por TIPO_CLIENTE
+(Rede / Distribuidor) com variação YoY.
 
-## ✨ 4. Família Systane (HTML + PPT)
-O card/slide "Tendência por Systane" (5 gráficos) ganhou um 6º:
-- 🔷 FAMÍLIA SYSTANE = soma de TODOS os Systane EXCETO Lid Wipes
-- Aparece como PRIMEIRO card, destacado (borda/fundo azul Alcon)
-- Mesma visão de sparkline 12m + variação YoY
+### HTML
+Novo card "🏪 Análise por Tipo de Cliente" (logo abaixo do de Franquia):
+- Barras de variação YoY: Total + Rede + Distribuidor
+- Tabela detalhada: SI Atual, SI Δ%, SO Δ%, Gap SI-SO
+- Resumo executivo (quem cresce / quem recua)
+- Detecção robusta: DISTRIB* → Distribuidor; REDE/VAREJO/FARM* → Rede
+
+### PPT
+Novo slide "🏪 Análise por Tipo de Cliente · Variação YoY":
+- 3 cards no topo: Total + Rede + Distribuidor (valor + Δ% YoY)
+- Tabela: Tipo | SI Atual | SI Δ% YoY | SO Δ% YoY | Gap SI-SO
 
 ## ✅ Validações
 - Sintaxe JS OK (3 scripts)
 - Python end-to-end OK
-- Runtime jsdom: XLSX ✅, canvas unidades no DOM ✅, sem ReferenceError ✅
-- **PPT completo gerado: 20 slides, ZERO erros estruturais** ✅
-  (inclui os novos: diff unidades, Top15 Rede, Top15 Distribuidor,
-   plano 2 tabelas, Systane family)
+- Runtime jsdom:
+  - Dropdown cliente ABRE ✅
+  - Card tipo cliente no DOM + renderTipoCliente ✅
+  - Escape testado com nomes "Drogasil & Cia", "A<B", aspas ✅
+- PPT completo: 21 slides (era 20, +1 tipo cliente), ZERO erros ✅
 
 ## 🧪 Como testar
 1. Substitua dashboard_template_v10.html (leve o xlsx.mini.min.js junto)
 2. Rode python sales_dashboard_v10.py
-3. HTML:
-   - Card "SI vs SO · Diferença": 2 gráficos (valor + unidades)
-   - Card "Tendência Systane": 1º card = 🔷 Família Systane (destacado)
-4. Exporte PowerPoint:
-   - 2 slides de diferença SI×SO (valor + unidades)
-   - 2 slides Top 15 Produtos (Rede / Distribuidor)
-   - Slide Plano de Ação com 2 tabelas (produto / cliente)
-   - Slide Systane com 6 cards (Família + 5 produtos)
+3. Clique no filtro "Cliente" → o dropdown agora abre normalmente
+4. Veja o novo card "🏪 Análise por Tipo de Cliente" (abaixo de Franquia)
+5. Exporte PowerPoint → novo slide de Tipo de Cliente com YoY
