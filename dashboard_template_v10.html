@@ -5049,20 +5049,34 @@ function renderKPIs(data, per){
     const kMesAntFinal = `${mesAntFinal.ano}-${mesAntFinal.mes}`;
 
     let atual=0, comp=0, mesUltimoVal=0, mom=0, ytd=0, ytdAnt=0;
-    for(const r of rawDataSellout){
-      if(!selloutCanalOk(r)) continue;
-      if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
-      if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
-      if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
-      if(produtoSet && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSet))) continue;
-      const k = `${r.ANO}-${r.MES}`;
-      const v = getValorSO(r);
-      if(periodoAtualSetSO.has(k)) atual += v;
-      if(periodoCompSetSO.has(k)) comp += v;
-      if(k === kUltMesPer) mesUltimoVal += v;
-      if(k === kMesAntFinal) mom += v;
-      if(ytdKeys.has(k)) ytd += v;
-      if(ytdAntKeys.has(k)) ytdAnt += v;
+
+    // PROTEÇÃO: se há filtro de franquia mas NENHUMA das franquias selecionadas
+    // existe na base de sell-out, não há SO a mostrar (ex: CL não tem sell-out).
+    // Isso evita qualquer vazamento de valor por divergência de nomes/match.
+    let franquiaTemSO = true;
+    if(franquiasSet){
+      franquiaTemSO = false;
+      for(const r of rawDataSellout){
+        if(_franquiaCI(r.FRANQUIA, franquiasSet)){ franquiaTemSO = true; break; }
+      }
+    }
+
+    if(franquiaTemSO){
+      for(const r of rawDataSellout){
+        if(!selloutCanalOk(r)) continue;
+        if(!clienteBateFiltroSO(r.GRUPO_PAINEL)) continue;
+        if(franquiasSet && !_franquiaCI(r.FRANQUIA, franquiasSet)) continue;
+        if(tipoSet && !tipoSet.has(r.TIPO_CLIENTE)) continue;
+        if(produtoSet && !produtoBateFiltro(r.PRODUTO, construirSetProdutosNorm(produtoSet))) continue;
+        const k = `${r.ANO}-${r.MES}`;
+        const v = getValorSO(r);
+        if(periodoAtualSetSO.has(k)) atual += v;
+        if(periodoCompSetSO.has(k)) comp += v;
+        if(k === kUltMesPer) mesUltimoVal += v;
+        if(k === kMesAntFinal) mom += v;
+        if(ytdKeys.has(k)) ytd += v;
+        if(ytdAntKeys.has(k)) ytdAnt += v;
+      }
     }
 
     // Construir labels do periodo SO
@@ -6797,22 +6811,53 @@ function renderTargetsFinanceiros(data, per){
     });
 
     const todosProdutos = [...new Set([...Object.keys(realYTDPorProduto), ...Object.keys(tgtYTDPorProduto)])];
-    const linhasProd = todosProdutos.map(p => {
+
+    // Separar: produtos COM target (detalhados) e SEM target (agrupados em "Outros" por franquia)
+    const linhasComTarget = [];
+    const outrosPorFranquia = {}; // {franquia: {realMes, realYTD, realMesAnt, realYTDAnt}}
+
+    todosProdutos.forEach(p => {
       const realMesP = realMesPorProduto[p]?.valor || 0;
       const realYTDP = realYTDPorProduto[p]?.valor || 0;
       const tgtMesP = tgtMesPorProduto[p] || 0;
       const tgtYTDP = tgtYTDPorProduto[p] || 0;
-      if(tgtYTDP === 0 && realYTDP === 0) return null;
+      const realMesAntP = realMesAntPorProduto[p]?.valor || 0;
+      const realYTDAntP = realYTDAntPorProduto[p]?.valor || 0;
+      const fr = franquiaDoProduto[p] || '—';
+
+      const temTarget = (tgtYTDP > 0 || tgtMesP > 0);
+      if(temTarget){
+        // Produto com target → linha detalhada
+        linhasComTarget.push({
+          produto: p, franquia: fr,
+          realMes: realMesP, tgtMes: tgtMesP,
+          realYTD: realYTDP, tgtYTD: tgtYTDP,
+          realMesAnt: realMesAntP, realYTDAnt: realYTDAntP,
+          gapYTD: formatGap(realYTDP, tgtYTDP), ehOutros: false
+        });
+      } else if(realYTDP > 0 || realMesP > 0){
+        // Produto SEM target mas com realizado → acumular em "Outros" da franquia
+        if(!outrosPorFranquia[fr]) outrosPorFranquia[fr] = {realMes:0, realYTD:0, realMesAnt:0, realYTDAnt:0};
+        outrosPorFranquia[fr].realMes += realMesP;
+        outrosPorFranquia[fr].realYTD += realYTDP;
+        outrosPorFranquia[fr].realMesAnt += realMesAntP;
+        outrosPorFranquia[fr].realYTDAnt += realYTDAntP;
+      }
+    });
+
+    // Construir linha "Outros" por franquia (sem target → tgt = 0)
+    const linhasOutros = Object.keys(outrosPorFranquia).map(fr => {
+      const o = outrosPorFranquia[fr];
       return {
-        produto: p,
-        franquia: franquiaDoProduto[p] || '—',
-        realMes: realMesP, tgtMes: tgtMesP,
-        realYTD: realYTDP, tgtYTD: tgtYTDP,
-        realMesAnt: realMesAntPorProduto[p]?.valor || 0,
-        realYTDAnt: realYTDAntPorProduto[p]?.valor || 0,
-        gapYTD: formatGap(realYTDP, tgtYTDP)
+        produto: '📦 Outros (sem target)', franquia: fr,
+        realMes: o.realMes, tgtMes: 0,
+        realYTD: o.realYTD, tgtYTD: 0,
+        realMesAnt: o.realMesAnt, realYTDAnt: o.realYTDAnt,
+        gapYTD: formatGap(o.realYTD, 0), ehOutros: true
       };
-    }).filter(x => x);
+    });
+
+    const linhasProd = [...linhasComTarget, ...linhasOutros];
 
     if(linhasProd.length > 0){
       // Agrupar por franquia
@@ -6891,9 +6936,10 @@ function renderTargetsFinanceiros(data, per){
       `;
 
       franquiasOrdenadas.forEach(fr => {
-        // Ordenar: positivos (≥100%) primeiro, depois quedas (<100% com target), sem target por último
+        // Ordenar: positivos (≥100%) primeiro, depois quedas, sem target, e "Outros" por último
         const classeOrd = (r) => {
-          if(!r.tgtYTD) return 2;                    // sem target → último
+          if(r.ehOutros) return 3;                   // linha "Outros" → sempre o último
+          if(!r.tgtYTD) return 2;                    // sem target → penúltimo
           return (r.realYTD/r.tgtYTD*100) >= 100 ? 0 : 1; // positivo → 0, queda → 1
         };
         const linhas = porFranquia[fr].sort((a,b) => {
@@ -6920,9 +6966,11 @@ function renderTargetsFinanceiros(data, per){
         `;
         // Produtos da franquia
         linhas.forEach(r => {
+          const estiloRow = r.ehOutros ? ' style="background:#FAFAFA"' : '';
+          const estiloNome = r.ehOutros ? 'padding-left:24px;font-style:italic;color:#64748b' : 'padding-left:24px';
           html += `
-            <tr>
-              <td style="padding-left:24px">${r.produto}</td>
+            <tr${estiloRow}>
+              <td style="${estiloNome}">${r.produto}</td>
               <td class="num">${r.realMes ? fmt(r.realMes) : '—'}</td>
               <td class="num" style="color:#64748b">${r.tgtMes ? fmt(r.tgtMes) : '—'}</td>
               <td class="num">${cellPct(r.realMes, r.tgtMes)}</td>
@@ -11696,7 +11744,9 @@ async function exportPPTX(){
 
         // Real e Target por produto - MÊS e YTD
         const produtosT = [...new Set([...targetsF.map(t => t.PRODUTO), ...base.map(r => r[COLS.PRODUTO])])].filter(p => p);
-        const linhasProd = produtosT.map(prod => {
+        const linhasComTgtP = [];
+        const outrosPorFrP = {}; // {franquia: {realMes, realYTD, realMesAnt, realYTDAnt}}
+        produtosT.forEach(prod => {
           const realMesP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] === mesAtualT)
             .reduce((s, r) => s + getValor(r), 0);
           const realYTDP = base.filter(r => r[COLS.PRODUTO] === prod && r[COLS.ANO] === anoAtualT && r[COLS.MES_NUM] <= mesAtualT)
@@ -11709,13 +11759,28 @@ async function exportPPTX(){
             .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
           const tgtYTDP = targetsF.filter(t => t.PRODUTO === prod && +t.ANO === anoAtualT && +t.MES_NUM <= mesAtualT)
             .reduce((s, t) => s + (+t[campoTgt] || 0), 0);
-          if(tgtYTDP === 0 && realYTDP === 0) return null;
-          return {
-            produto: prod, franquia: franquiaDoProdutoT[prod] || '—',
-            realMes: realMesP, tgtMes: tgtMesP, realYTD: realYTDP, tgtYTD: tgtYTDP,
-            realMesAnt: realMesAntP, realYTDAnt: realYTDAntP
-          };
-        }).filter(x => x);
+          const fr = franquiaDoProdutoT[prod] || '—';
+          const temTgt = (tgtYTDP > 0 || tgtMesP > 0);
+          if(temTgt){
+            linhasComTgtP.push({
+              produto: prod, franquia: fr,
+              realMes: realMesP, tgtMes: tgtMesP, realYTD: realYTDP, tgtYTD: tgtYTDP,
+              realMesAnt: realMesAntP, realYTDAnt: realYTDAntP, ehOutros: false
+            });
+          } else if(realYTDP > 0 || realMesP > 0){
+            if(!outrosPorFrP[fr]) outrosPorFrP[fr] = {realMes:0, realYTD:0, realMesAnt:0, realYTDAnt:0};
+            outrosPorFrP[fr].realMes += realMesP;
+            outrosPorFrP[fr].realYTD += realYTDP;
+            outrosPorFrP[fr].realMesAnt += realMesAntP;
+            outrosPorFrP[fr].realYTDAnt += realYTDAntP;
+          }
+        });
+        const linhasOutrosP = Object.keys(outrosPorFrP).map(fr => {
+          const o = outrosPorFrP[fr];
+          return {produto:'Outros (sem target)', franquia:fr, realMes:o.realMes, tgtMes:0,
+            realYTD:o.realYTD, tgtYTD:0, realMesAnt:o.realMesAnt, realYTDAnt:o.realYTDAnt, ehOutros:true};
+        });
+        const linhasProd = [...linhasComTgtP, ...linhasOutrosP];
 
         if(linhasProd.length > 0){
           // Agrupar por franquia
@@ -11757,8 +11822,9 @@ async function exportPPTX(){
 
           let totRMes=0, totTMes=0, totRYTD=0, totTYTD=0, totRMesAnt=0, totRYTDAnt=0;
           frsOrd.forEach(fr => {
-            // Ordenar: positivos (≥100%) → quedas (<100% com target) → sem target
+            // Ordenar: positivos → quedas → sem target → "Outros" por último
             const classeOrd = (r) => {
+              if(r.ehOutros) return 3;
               if(!r.tgtYTD) return 2;
               return (r.realYTD/r.tgtYTD*100) >= 100 ? 0 : 1;
             };
@@ -11775,8 +11841,10 @@ async function exportPPTX(){
             linhas.forEach(r => {
               sRM+=r.realMes; sTM+=r.tgtMes; sRY+=r.realYTD; sTY+=r.tgtYTD;
               sRMa+=(r.realMesAnt||0); sRYa+=(r.realYTDAnt||0);
+              const corNome = r.ehOutros ? CINZA : PRETO;
+              const italNome = r.ehOutros ? true : false;
               rows.push([
-                {text:`  ${r.produto}`, options:{fontSize:11, color:PRETO}},
+                {text:`  ${r.produto}`, options:{fontSize:11, color:corNome, italic:italNome}},
                 {text:r.realMes?fmt(r.realMes):'—', options:{fontSize:11, color:PRETO, align:'center'}},
                 {text:r.tgtMes?fmt(r.tgtMes):'—', options:{fontSize:11, color:CINZA, align:'center'}},
                 pctCell(r.realMes, r.tgtMes),
@@ -11844,10 +11912,351 @@ async function exportPPTX(){
     }
 
     // ============================================================
-    // SLIDES PLANO DE RECUPERAÇÃO POR GRUPO DE FRANQUIA
-    // Slide 1: DE&OH + CLC | Slide 2: Glaucoma + Pós-Op | Slide 3: CL
-    // Cada grupo: 1 slide DIAGNÓSTICO (dados reais) + 1 slide PLANO DE AÇÃO
+    // SLIDE - CRESCIMENTO POR PRODUTO (24→25 FY, Target% 2026, YTD 26 vs 25)
+    // IMPORTANTE: respeita APENAS o filtro de franquia (ignora cliente/produto/etc.)
+    // Usa a métrica selecionada (UNID/BRL/USD)
     // ============================================================
+    if(typeof targetsFinanceiros !== 'undefined' && rawData && rawData.length > 0){
+      const sCresc = pptx.addSlide();
+      sCresc.background = {color: 'FFFFFF'};
+
+      // Determinar anos: 2026 = maior ano com target (ou maior ano da base); 25 e 24 retroativos
+      const anosBase = [...new Set(rawData.map(r => +r[COLS.ANO]))].sort((a,b)=>a-b);
+      const anoAtu = Math.max(...anosBase);          // 2026
+      const anoPrev = anoAtu - 1;                    // 2025
+      const anoPrev2 = anoAtu - 2;                   // 2024
+      // Último mês disponível do ano atual (para YTD)
+      const mesesAnoAtu = rawData.filter(r => +r[COLS.ANO] === anoAtu).map(r => +r[COLS.MES_NUM]);
+      const ultMesYTD = mesesAnoAtu.length ? Math.max(...mesesAnoAtu) : 12;
+
+      addHeader(sCresc, `📈 Crescimento por Produto · ${anoPrev2}→${anoPrev} · Target ${anoAtu} · YTD ${anoAtu} · ${mLabel}`);
+      sCresc.addText(`Apenas filtro de franquia aplicado (ignora demais filtros) · YTD = Jan→${MESES_NOME[ultMesYTD-1]} · Métrica: ${mLabel}`, {
+        x:0.3, y:0.82, w:12.9, h:0.3, fontSize:10, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
+
+      // Filtro APENAS de franquia
+      const franquiasSetC = franquiasSelecionadas.length ? new Set(franquiasSelecionadas.map(f => String(f))) : null;
+
+      // Mapa franquia do produto (targets + base)
+      const frProdC = {};
+      targetsFinanceiros.forEach(t => { if(t.PRODUTO && t.FRANQUIA) frProdC[t.PRODUTO] = t.FRANQUIA; });
+      for(const r of rawData){
+        const p = r[COLS.PRODUTO];
+        if(p && !frProdC[p] && r[COLS.FRANQUIA]) frProdC[p] = r[COLS.FRANQUIA];
+      }
+
+      // Agregar realizado por produto e ano (só franquia filtrada)
+      const real = {}; // {produto: {fy24, fy25, ytd25, ytd26}}
+      for(const r of rawData){
+        if(franquiasSetC && !franquiasSetC.has(String(r[COLS.FRANQUIA]))) continue;
+        const p = r[COLS.PRODUTO]; if(!p) continue;
+        const ano = +r[COLS.ANO], mes = +r[COLS.MES_NUM];
+        const v = getValor(r);
+        if(!real[p]) real[p] = {fy24:0, fy25:0, ytd25:0, ytd26:0};
+        if(ano === anoPrev2) real[p].fy24 += v;
+        if(ano === anoPrev){ real[p].fy25 += v; if(mes <= ultMesYTD) real[p].ytd25 += v; }
+        if(ano === anoAtu && mes <= ultMesYTD) real[p].ytd26 += v;
+      }
+
+      // Target por produto (campo conforme métrica)
+      const mapCampoC = {UNID:'TARGET_UNID', BRL:'TARGET_BRL', USD:'TARGET_USD'};
+      const campoC = mapCampoC[metricaAtual];
+      const tgtFY = {}, tgtYTD = {};
+      targetsFinanceiros.forEach(t => {
+        const p = t.PRODUTO; if(!p) return;
+        if(franquiasSetC && !franquiasSetC.has(String(t.FRANQUIA))) return;
+        if(+t.ANO !== anoAtu) return;
+        const val = +t[campoC] || 0;
+        tgtFY[p] = (tgtFY[p] || 0) + val;
+        if(+t.MES_NUM <= ultMesYTD) tgtYTD[p] = (tgtYTD[p] || 0) + val;
+      });
+
+      // Montar linhas: COM target detalhado, SEM target → Outros por franquia
+      const todosProdC = [...new Set([...Object.keys(real), ...Object.keys(tgtFY)])];
+      const comTgtC = [];
+      const outrosC = {}; // {fr: {fy24,fy25,ytd25,ytd26}}
+      todosProdC.forEach(p => {
+        const rr = real[p] || {fy24:0, fy25:0, ytd25:0, ytd26:0};
+        const fr = frProdC[p] || '—';
+        const temTgt = (tgtFY[p] > 0 || tgtYTD[p] > 0);
+        if(temTgt){
+          comTgtC.push({produto:p, franquia:fr, ...rr, tgtFY:tgtFY[p]||0, tgtYTD:tgtYTD[p]||0, ehOutros:false});
+        } else if(rr.fy25 > 0 || rr.ytd26 > 0 || rr.fy24 > 0){
+          if(!outrosC[fr]) outrosC[fr] = {fy24:0, fy25:0, ytd25:0, ytd26:0};
+          outrosC[fr].fy24 += rr.fy24; outrosC[fr].fy25 += rr.fy25;
+          outrosC[fr].ytd25 += rr.ytd25; outrosC[fr].ytd26 += rr.ytd26;
+        }
+      });
+      const linhasOutrosC = Object.keys(outrosC).map(fr => ({
+        produto:'Outros (sem target)', franquia:fr, ...outrosC[fr], tgtFY:0, tgtYTD:0, ehOutros:true
+      }));
+      const linhasC = [...comTgtC, ...linhasOutrosC];
+
+      if(linhasC.length === 0){
+        sCresc.addText('Sem dados de crescimento por produto para a franquia selecionada.', {
+          x:0.5, y:3.5, w:12.4, h:0.5, fontSize:13, italic:true, color:CINZA, align:'center', fontFace:'Open Sans'
+        });
+      } else {
+        // Agrupar por franquia
+        const porFrC = {};
+        linhasC.forEach(l => { (porFrC[l.franquia] ||= []).push(l); });
+        const ordemFrC = ['GLAUCOMA','PÓS-OP. & PATANOL S','POS-OP. & PATANOL S','DE&OH','CLC','CL'];
+        const frsC = Object.keys(porFrC).sort((a,b) => {
+          const ia = ordemFrC.findIndex(o => a.toUpperCase().trim()===o);
+          const ib = ordemFrC.findIndex(o => b.toUpperCase().trim()===o);
+          if(ia===-1&&ib===-1) return a.localeCompare(b);
+          if(ia===-1) return 1; if(ib===-1) return -1; return ia-ib;
+        });
+
+        // Helper de crescimento % com cor
+        const pctCresc = (atual, base_) => {
+          if(!base_) return {text: atual>0?'novo':'—', options:{fontSize:11, color: atual>0?VERDE:CINZA, align:'center'}};
+          const g = (atual/base_*100) - 100;
+          return {text:`${g>=0?'▲ +':'▼ '}${g.toFixed(0)}%`, options:{fontSize:11, color: g>=0?VERDE:VERMELHO, align:'center', bold:true}};
+        };
+
+        const HC = (t)=>({text:t, options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:11, align:'center'}});
+        const rows = [[
+          {text:'Franquia / Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:11}},
+          HC(`Cresc% ${String(anoPrev2).slice(2)}→${String(anoPrev).slice(2)}`),
+          HC(`Target% ${String(anoAtu).slice(2)} FY`),
+          HC(`Target% ${String(anoAtu).slice(2)} YTD`),
+          HC(`Cresc% YTD ${String(anoAtu).slice(2)}`)
+        ]];
+
+        let tFy24=0,tFy25=0,tYtd25=0,tYtd26=0,tTgtFY=0,tTgtYTD=0;
+        frsC.forEach(fr => {
+          // Ordenar por crescimento YTD desc; Outros por último
+          const linhas = porFrC[fr].sort((a,b) => {
+            if(a.ehOutros !== b.ehOutros) return a.ehOutros ? 1 : -1;
+            const ga = a.ytd25 ? a.ytd26/a.ytd25 : 0;
+            const gb = b.ytd25 ? b.ytd26/b.ytd25 : 0;
+            return gb - ga;
+          });
+          rows.push([{text:`🏷️ ${fr}`, options:{bold:true, color:AZUL, fill:{color:'EEF2FF'}, fontSize:11, colspan:5}}]);
+          let sFy24=0,sFy25=0,sYtd25=0,sYtd26=0,sTgtFY=0,sTgtYTD=0;
+          linhas.forEach(l => {
+            sFy24+=l.fy24; sFy25+=l.fy25; sYtd25+=l.ytd25; sYtd26+=l.ytd26; sTgtFY+=l.tgtFY; sTgtYTD+=l.tgtYTD;
+            rows.push([
+              {text:`  ${l.produto}`, options:{fontSize:11, color: l.ehOutros?CINZA:PRETO, italic:l.ehOutros}},
+              pctCresc(l.fy25, l.fy24),
+              l.ehOutros ? {text:'—', options:{fontSize:11, color:CINZA, align:'center'}} : pctCresc(l.tgtFY, l.fy25),
+              l.ehOutros ? {text:'—', options:{fontSize:11, color:CINZA, align:'center'}} : pctCresc(l.tgtYTD, l.ytd25),
+              pctCresc(l.ytd26, l.ytd25)
+            ]);
+          });
+          // Subtotal franquia
+          rows.push([
+            {text:`  ↳ Subtotal ${fr}`, options:{fontSize:11, bold:true, color:AZUL_ESCURO, fill:{color:'F1F5F9'}}},
+            {...pctCresc(sFy25,sFy24), options:{...pctCresc(sFy25,sFy24).options, fill:{color:'F1F5F9'}}},
+            {...pctCresc(sTgtFY,sFy25), options:{...pctCresc(sTgtFY,sFy25).options, fill:{color:'F1F5F9'}}},
+            {...pctCresc(sTgtYTD,sYtd25), options:{...pctCresc(sTgtYTD,sYtd25).options, fill:{color:'F1F5F9'}}},
+            {...pctCresc(sYtd26,sYtd25), options:{...pctCresc(sYtd26,sYtd25).options, fill:{color:'F1F5F9'}}}
+          ]);
+          tFy24+=sFy24; tFy25+=sFy25; tYtd25+=sYtd25; tYtd26+=sYtd26; tTgtFY+=sTgtFY; tTgtYTD+=sTgtYTD;
+        });
+        // Total geral
+        const totCresc = (a,b) => b ? `${(a/b*100-100)>=0?'+':''}${(a/b*100-100).toFixed(0)}%` : '—';
+        rows.push([
+          {text:'TOTAL GERAL', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11}},
+          {text:totCresc(tFy25,tFy24), options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}},
+          {text:totCresc(tTgtFY,tFy25), options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}},
+          {text:totCresc(tTgtYTD,tYtd25), options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}},
+          {text:totCresc(tYtd26,tYtd25), options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:11, align:'center'}}
+        ]);
+
+        const rowHTc = rows.length > 24 ? 0.26 : (rows.length > 18 ? 0.30 : 0.36);
+        sCresc.addTable(rows, {
+          x:0.5, y:1.25, w:12.4,
+          colW:[4.4, 2.0, 2.0, 2.0, 2.0],
+          border:{type:'solid', pt:0.5, color:'E5E7EB'},
+          rowH:rowHTc, valign:'middle', autoPage:true, autoPageRepeatHeader:true, newSlideStartY:0.8
+        });
+
+        sCresc.addText(`Cresc% ${anoPrev2}→${anoPrev} = real ${anoPrev}÷${anoPrev2}-1 · Target% = target ${anoAtu}÷real ${anoPrev} (FY e YTD) · Cresc% YTD = real YTD ${anoAtu}÷YTD ${anoPrev}. "Outros" = produtos sem target, por franquia.`, {
+          x:0.5, y:7.1, w:12.4, h:0.3, fontSize:8, italic:true, color:CINZA, fontFace:'Open Sans'
+        });
+      }
+    }
+
+    // ============================================================
+    // SLIDE - CRESCIMENTO SELL-OUT por PRODUTO · YTD · sempre em UNIDADES
+    // (mesmo que a métrica filtrada seja BRL/USD). Respeita só filtro de franquia.
+    // ============================================================
+    if(rawDataSellout && rawDataSellout.length > 0 && selloutUltimoPeriodo){
+      const sCrescSO = pptx.addSlide();
+      sCrescSO.background = {color: 'FFFFFF'};
+
+      const ultSO = selloutUltimoPeriodo;     // ex: {ano:2026, mes:4}
+      const anoSO = ultSO.ano;                // 2026
+      const anoSOprev = anoSO - 1;            // 2025
+      const ultMesSO = ultSO.mes;             // 4
+
+      // Índice absoluto do último mês de SO (ano*12 + mes-1)
+      const fimIdx = anoSO * 12 + (ultMesSO - 1);
+      // Helper: chave "ano-mes" a partir de índice absoluto
+      const idxToKey = (idx) => `${Math.floor(idx/12)}-${(idx%12)+1}`;
+
+      // MAT atual = 12 meses terminando em fimIdx; MAT anterior = 12 meses antes desses
+      const matAtualKeys = new Set(), matAntKeys = new Set();
+      for(let i=0;i<12;i++){ matAtualKeys.add(idxToKey(fimIdx - i)); matAntKeys.add(idxToKey(fimIdx - 12 - i)); }
+      // YTD atual = Jan→ultMesSO do anoSO; YTD anterior = mesmos meses anoSOprev
+      const ytdAtualKeys = new Set(), ytdAntKeys = new Set();
+      for(let m=1;m<=ultMesSO;m++){ ytdAtualKeys.add(`${anoSO}-${m}`); ytdAntKeys.add(`${anoSOprev}-${m}`); }
+      // TRI atual = últimos 3 meses de SO; TRI anterior = 3 meses imediatamente anteriores
+      const triAtualKeys = new Set(), triAntKeys = new Set();
+      for(let i=0;i<3;i++){ triAtualKeys.add(idxToKey(fimIdx - i)); triAntKeys.add(idxToKey(fimIdx - 3 - i)); }
+
+      const lblMatAtual = `${MESES_NOME[((fimIdx-11)%12+12)%12]}/${String(Math.floor((fimIdx-11)/12)).slice(2)}→${MESES_NOME[(fimIdx%12)]}/${String(Math.floor(fimIdx/12)).slice(2)}`;
+      const lblTriAtual = `${MESES_NOME[((fimIdx-2)%12+12)%12]}→${MESES_NOME[(fimIdx%12)]}`;
+
+      addHeader(sCrescSO, `📦 Crescimento Sell-out por Produto · MAT · YTD · Trimestre · UNIDADES`);
+      sCrescSO.addText(`Sempre em unidades (independe da métrica filtrada) · MAT/YTD/TRI terminando em ${MESES_NOME[ultMesSO-1]}/${anoSO} · Apenas filtro de franquia`, {
+        x:0.3, y:0.82, w:12.9, h:0.3, fontSize:10, italic:true, color:CINZA, fontFace:'Open Sans'
+      });
+
+      const franquiasSetSO = franquiasSelecionadas.length ? new Set(franquiasSelecionadas.map(f => String(f))) : null;
+
+      // Mapa franquia do produto (targets + base SI)
+      const frProdSO = {};
+      if(typeof targetsFinanceiros !== 'undefined'){
+        targetsFinanceiros.forEach(t => { if(t.PRODUTO && t.FRANQUIA) frProdSO[t.PRODUTO] = t.FRANQUIA; });
+      }
+      for(const r of rawData){
+        const p = r[COLS.PRODUTO];
+        if(p && !frProdSO[p] && r[COLS.FRANQUIA]) frProdSO[p] = r[COLS.FRANQUIA];
+      }
+      // Produtos COM target (para separar de "Outros")
+      const temTgtSO = new Set();
+      if(typeof targetsFinanceiros !== 'undefined'){
+        targetsFinanceiros.forEach(t => {
+          if(+t.ANO === anoSO && ((+t.TARGET_UNID||0) > 0 || (+t.TARGET_BRL||0) > 0 || (+t.TARGET_USD||0) > 0)){
+            temTgtSO.add(t.PRODUTO);
+          }
+        });
+      }
+
+      // Agregar SELL-OUT em UNIDADES por produto: MAT/YTD/TRI (atual e anterior)
+      const soUnid = {}; // {produto: {matA, matP, ytdA, ytdP, triA, triP}}
+      for(const r of rawDataSellout){
+        if(!selloutCanalOk(r)) continue;
+        if(franquiasSetSO && !_franquiaCI(r.FRANQUIA, franquiasSetSO)) continue;
+        const p = r.PRODUTO; if(!p) continue;
+        const u = +r.UNID || 0;  // SEMPRE unidades
+        const k = `${r.ANO}-${r.MES}`;
+        if(!soUnid[p]) soUnid[p] = {matA:0, matP:0, ytdA:0, ytdP:0, triA:0, triP:0};
+        if(matAtualKeys.has(k)) soUnid[p].matA += u;
+        if(matAntKeys.has(k))   soUnid[p].matP += u;
+        if(ytdAtualKeys.has(k)) soUnid[p].ytdA += u;
+        if(ytdAntKeys.has(k))   soUnid[p].ytdP += u;
+        if(triAtualKeys.has(k)) soUnid[p].triA += u;
+        if(triAntKeys.has(k))   soUnid[p].triP += u;
+      }
+
+      // Montar linhas: com target detalhado, sem target → Outros por franquia
+      const comTgtSO = [];
+      const outrosSO = {}; // {fr: {6 campos}}
+      Object.keys(soUnid).forEach(p => {
+        const s = soUnid[p];
+        if(s.matA===0 && s.matP===0 && s.ytdA===0 && s.ytdP===0 && s.triA===0 && s.triP===0) return;
+        const fr = frProdSO[p] || '—';
+        if(temTgtSO.has(p)){
+          comTgtSO.push({produto:p, franquia:fr, ...s, ehOutros:false});
+        } else {
+          if(!outrosSO[fr]) outrosSO[fr] = {matA:0,matP:0,ytdA:0,ytdP:0,triA:0,triP:0};
+          ['matA','matP','ytdA','ytdP','triA','triP'].forEach(kk => outrosSO[fr][kk] += s[kk]);
+        }
+      });
+      const linhasOutrosSO = Object.keys(outrosSO).map(fr => ({
+        produto:'Outros (sem target)', franquia:fr, ...outrosSO[fr], ehOutros:true
+      }));
+      const linhasSO = [...comTgtSO, ...linhasOutrosSO];
+
+      if(linhasSO.length === 0){
+        sCrescSO.addText('Sem dados de sell-out para a franquia selecionada (ex: CL não tem sell-out).', {
+          x:0.5, y:3.5, w:12.4, h:0.5, fontSize:13, italic:true, color:CINZA, align:'center', fontFace:'Open Sans'
+        });
+      } else {
+        const porFrSO = {};
+        linhasSO.forEach(l => { (porFrSO[l.franquia] ||= []).push(l); });
+        const ordemFrSO = ['GLAUCOMA','PÓS-OP. & PATANOL S','POS-OP. & PATANOL S','DE&OH','CLC','CL'];
+        const frsSO = Object.keys(porFrSO).sort((a,b) => {
+          const ia = ordemFrSO.findIndex(o => a.toUpperCase().trim()===o);
+          const ib = ordemFrSO.findIndex(o => b.toUpperCase().trim()===o);
+          if(ia===-1&&ib===-1) return a.localeCompare(b);
+          if(ia===-1) return 1; if(ib===-1) return -1; return ia-ib;
+        });
+
+        const fmtUn = v => Math.round(v).toLocaleString('pt-BR');
+        const pctCrescSO = (atual, base_) => {
+          if(!base_) return {text: atual>0?'novo':'—', options:{fontSize:9, color: atual>0?VERDE:CINZA, align:'center'}};
+          const g = (atual/base_*100) - 100;
+          return {text:`${g>=0?'+':''}${g.toFixed(0)}%`, options:{fontSize:9, color: g>=0?VERDE:VERMELHO, align:'center', bold:true}};
+        };
+        const numCell = (v, cor) => ({text: v?fmtUn(v):'—', options:{fontSize:9, color:cor||PRETO, align:'center'}});
+        const HCs = (t, fill)=>({text:t, options:{bold:true, color:BRANCO, fill:{color:fill||AZUL_ESCURO}, fontSize:9, align:'center'}});
+
+        // Cabeçalho com 3 blocos: MAT | YTD | TRI (cada um: ant, atual, %)
+        const rows = [[
+          {text:'Franquia / Produto', options:{bold:true, color:BRANCO, fill:{color:AZUL_ESCURO}, fontSize:9}},
+          HCs('MAT ant', '0F2744'), HCs('MAT atual', '0F2744'), HCs('MAT %', '0F2744'),
+          HCs('YTD ant', '1E3A5F'), HCs('YTD atual', '1E3A5F'), HCs('YTD %', '1E3A5F'),
+          HCs('TRI ant', '334155'), HCs('TRI atual', '334155'), HCs('TRI %', '334155')
+        ]];
+
+        const T = {matA:0,matP:0,ytdA:0,ytdP:0,triA:0,triP:0};
+        frsSO.forEach(fr => {
+          const linhas = porFrSO[fr].sort((a,b) => {
+            if(a.ehOutros !== b.ehOutros) return a.ehOutros ? 1 : -1;
+            const ga = a.ytdP ? a.ytdA/a.ytdP : 0;
+            const gb = b.ytdP ? b.ytdA/b.ytdP : 0;
+            return gb - ga;
+          });
+          rows.push([{text:`🏷️ ${fr}`, options:{bold:true, color:AZUL, fill:{color:'EEF2FF'}, fontSize:9, colspan:10}}]);
+          const S = {matA:0,matP:0,ytdA:0,ytdP:0,triA:0,triP:0};
+          linhas.forEach(l => {
+            ['matA','matP','ytdA','ytdP','triA','triP'].forEach(kk => S[kk]+=l[kk]);
+            rows.push([
+              {text:`  ${l.produto}`, options:{fontSize:9, color: l.ehOutros?CINZA:PRETO, italic:l.ehOutros}},
+              numCell(l.matP, CINZA), numCell(l.matA), pctCrescSO(l.matA, l.matP),
+              numCell(l.ytdP, CINZA), numCell(l.ytdA), pctCrescSO(l.ytdA, l.ytdP),
+              numCell(l.triP, CINZA), numCell(l.triA), pctCrescSO(l.triA, l.triP)
+            ]);
+          });
+          // Subtotal
+          const subCellsBg = (v,cor)=>({text:v?fmtUn(v):'—', options:{fontSize:9, bold:true, color:cor||PRETO, fill:{color:'F1F5F9'}, align:'center'}});
+          const subPct = (a,b)=>({...pctCrescSO(a,b), options:{...pctCrescSO(a,b).options, fill:{color:'F1F5F9'}}});
+          rows.push([
+            {text:`  ↳ Subtotal ${fr}`, options:{fontSize:9, bold:true, color:AZUL_ESCURO, fill:{color:'F1F5F9'}}},
+            subCellsBg(S.matP,CINZA), subCellsBg(S.matA), subPct(S.matA,S.matP),
+            subCellsBg(S.ytdP,CINZA), subCellsBg(S.ytdA), subPct(S.ytdA,S.ytdP),
+            subCellsBg(S.triP,CINZA), subCellsBg(S.triA), subPct(S.triA,S.triP)
+          ]);
+          ['matA','matP','ytdA','ytdP','triA','triP'].forEach(kk => T[kk]+=S[kk]);
+        });
+        // Total geral
+        const totPct = (a,b)=> b ? `${(a/b*100-100)>=0?'+':''}${(a/b*100-100).toFixed(0)}%` : '—';
+        const totCell = (v,cor)=>({text:v?fmtUn(v):'—', options:{bold:true, color:cor||BRANCO, fill:{color:AZUL}, fontSize:9, align:'center'}});
+        rows.push([
+          {text:'TOTAL GERAL', options:{bold:true, color:BRANCO, fill:{color:AZUL}, fontSize:9}},
+          totCell(T.matP,'CBD5E1'), totCell(T.matA), {text:totPct(T.matA,T.matP), options:{bold:true,color:BRANCO,fill:{color:AZUL},fontSize:9,align:'center'}},
+          totCell(T.ytdP,'CBD5E1'), totCell(T.ytdA), {text:totPct(T.ytdA,T.ytdP), options:{bold:true,color:BRANCO,fill:{color:AZUL},fontSize:9,align:'center'}},
+          totCell(T.triP,'CBD5E1'), totCell(T.triA), {text:totPct(T.triA,T.triP), options:{bold:true,color:BRANCO,fill:{color:AZUL},fontSize:9,align:'center'}}
+        ]);
+
+        const rowHTso = rows.length > 24 ? 0.26 : (rows.length > 18 ? 0.30 : 0.34);
+        sCrescSO.addTable(rows, {
+          x:0.2, y:1.25, w:12.9,
+          colW:[2.7, 1.13, 1.13, 0.9, 1.13, 1.13, 0.9, 1.13, 1.13, 0.82],
+          border:{type:'solid', pt:0.5, color:'E5E7EB'},
+          rowH:rowHTso, valign:'middle', autoPage:true, autoPageRepeatHeader:true, newSlideStartY:0.8
+        });
+
+        sCrescSO.addText(`UNIDADES de sell-out (sempre, mesmo com métrica ${mLabel}). MAT = 12m term. ${MESES_NOME[ultMesSO-1]}/${anoSO} vs 12m anteriores · YTD = Jan→${MESES_NOME[ultMesSO-1]} vs ${anoSOprev} · TRI = ${lblTriAtual} vs 3m anteriores. "Outros" = sem target.`, {
+          x:0.2, y:7.15, w:12.9, h:0.3, fontSize:8, italic:true, color:CINZA, fontFace:'Open Sans'
+        });
+      }
+    }
 
     // Helper: calcula diagnóstico real de um grupo de franquias
     function diagnosticoGrupo(franquiasGrupo){
